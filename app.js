@@ -1,23 +1,48 @@
 const $=id=>document.getElementById(id);
 
 const DISCLOSURE="쿠팡 파트너스 활동으로 일정액의 수수료를 제공받습니다.";
+const MAX_FILES=3;
 const REQUEST_TIMEOUT=22000;
+
+const state={
+  files:[],
+  objectUrls:[],
+  ocrText:"",
+  ocrTitle:"",
+  ocrPrice:"",
+  category:"",
+  metadata:null,
+  readerText:"",
+  searchText:"",
+  webTitle:"",
+  webPrice:"",
+  logs:[]
+};
 
 const FOOD_KEYWORDS=[
   "갈비","고기","한우","소고기","돼지고기","닭고기","오리고기","생선","수산물","해산물",
   "새우","과일","참외","수박","사과","배","포도","복숭아","채소","야채","김치","반찬",
   "라면","국수","우동","면","만두","볶음밥","국","탕","찌개","간편식","냉동식품",
-  "참치","통조림","과자","오예스","쿠키","빵","떡","초콜릿","젤리","커피","차","음료",
-  "생수","주스","우유","두유","치즈","요거트","계란","달걀","소스","양념","고추장",
-  "된장","간장","식품"
+  "참치","통조림","과자","오예스","몽쉘","쿠키","빵","떡","초콜릿","젤리","커피","차",
+  "음료","생수","삼다수","주스","우유","두유","치즈","요거트","계란","달걀","소스",
+  "양념","고추장","된장","간장","식품"
 ];
 
 const LIVING_KEYWORDS=[
   "세제","섬유유연제","화장지","휴지","물티슈","키친타월","청소포","수세미","세정제",
   "주방세제","욕실세정제","욕실청소","락스","탈취제","방향제","샴푸","린스",
-  "트리트먼트","바디워시","비누","치약","칫솔","생리대","기저귀","마스크","면봉",
-  "화장솜","수납","봉투","랩","호일","지퍼백","위생장갑","종이컵","생활용품","생필품",
-  "리필","청소용"
+  "트리트먼트","바디워시","핸드솝","비누","치약","칫솔","생리대","기저귀","마스크",
+  "면봉","화장솜","수납","봉투","랩","호일","지퍼백","위생장갑","종이컵","생활용품",
+  "생필품","리필","청소용"
+];
+
+const UI_NOISE_PATTERNS=[
+  /쿠팡에서 검색/i,/상품상세/i,/장바구니/i,/바로구매/i,/배송비/i,/무료배송/i,
+  /무료반품/i,/로켓프레시/i,/로켓배송/i,/도착/i,/브랜드샵/i,/원산지/i,
+  /상품 상세설명/i,/구매많음/i,/모든 옵션 보기/i,/개당 중량/i,/수량/i,
+  /한 달간/i,/구매했어요/i,/판매자/i,/할인/i,/쿠폰/i,/별점/i,/리뷰/i,
+  /와우카드/i,/저렴하게 구매/i,/오늘\(.+\)/i,/내일\(.+\)/i,/검색하세요/i,
+  /^\d+%$/,/^\(?\d+(?:,\d+)*\)?$/,/^\d+\s*명/
 ];
 
 const STOP_TOKENS=new Set([
@@ -25,27 +50,7 @@ const STOP_TOKENS=new Set([
   "1개","2개","3개","4개","5개","6개","세트","구성"
 ]);
 
-const state={
-  metadata:null,
-  readerText:"",
-  searchText:"",
-  finalTitle:"",
-  finalPrice:"",
-  category:"",
-  logs:[]
-};
-
 const clean=value=>String(value||"").replace(/\u00a0/g," ").trim().replace(/\s+/g," ");
-
-function classify(name){
-  const text=clean(name).toLowerCase();
-  const food=FOOD_KEYWORDS.some(word=>text.includes(word.toLowerCase()));
-  const living=LIVING_KEYWORDS.some(word=>text.includes(word.toLowerCase()));
-  if(food&&!living)return"식품";
-  if(living&&!food)return"생필품";
-  if(food&&living)return"식품·생필품";
-  return"일반 상품";
-}
 
 function normalize(text){
   return clean(text)
@@ -71,12 +76,172 @@ function tokenSimilarity(a,b){
 }
 
 function hasProductEvidence(text,product){
-  if(!text)return false;
+  if(!text||!product)return false;
   const productTokens=tokens(product).filter(token=>!/\d/.test(token)||token.length>=3);
   if(!productTokens.length)return false;
   const normalized=normalize(text);
   const hits=productTokens.filter(token=>normalized.includes(token)).length;
   return hits>=Math.min(2,productTokens.length);
+}
+
+function classify(name){
+  const text=clean(name).toLowerCase();
+  const food=FOOD_KEYWORDS.some(word=>text.includes(word.toLowerCase()));
+  const living=LIVING_KEYWORDS.some(word=>text.includes(word.toLowerCase()));
+  if(food&&!living)return"식품";
+  if(living&&!food)return"생필품";
+  if(food&&living)return"식품·생필품";
+  return"일반 상품";
+}
+
+function formatWon(raw){
+  const digits=String(raw).replace(/[^\d]/g,"");
+  if(!digits)return"";
+  const number=Number(digits);
+  if(!Number.isFinite(number)||number<100||number>100000000)return"";
+  return number.toLocaleString("ko-KR")+"원";
+}
+
+function normalizeOcrText(text){
+  return String(text||"")
+    .replace(/[｜|]/g," ")
+    .replace(/[，]/g,",")
+    .replace(/[₩]/g,"")
+    .replace(/(\d)\s*,\s*(\d{3})/g,"$1,$2")
+    .replace(/(\d)\s*원/g,"$1원")
+    .replace(/\r/g,"");
+}
+
+function linesFromText(text){
+  return normalizeOcrText(text)
+    .split("\n")
+    .map(line=>clean(line.replace(/^[•·\-–—]+\s*/,"")))
+    .filter(Boolean);
+}
+
+function isNoiseLine(line){
+  if(line.length<2)return true;
+  if(UI_NOISE_PATTERNS.some(pattern=>pattern.test(line)))return true;
+  if(/^[\d\s%,.()]+$/.test(line))return true;
+  if(/^[★☆⭐\s]+$/.test(line))return true;
+  if(/^https?:/i.test(line))return true;
+  return false;
+}
+
+function isUnitPriceContext(line,index){
+  const before=line.slice(Math.max(0,index-22),index).toLowerCase();
+  return /(?:100\s*(?:ml|g)|10\s*g|개|1개)\s*당\s*$/.test(before);
+}
+
+function extractPriceCandidates(text){
+  const lines=linesFromText(text);
+  const candidates=[];
+  const regex=/(\d{1,3}(?:,\d{3})+|\d{4,8})\s*원/g;
+
+  lines.forEach((line,lineIndex)=>{
+    let match;
+    while((match=regex.exec(line))!==null){
+      if(isUnitPriceContext(line,match.index))continue;
+
+      const price=formatWon(match[1]);
+      const numeric=Number(price.replace(/[^\d]/g,""));
+      if(!price||numeric<500)continue;
+
+      let score=0;
+      const around=line.slice(
+        Math.max(0,match.index-24),
+        Math.min(line.length,match.index+match[0].length+24)
+      );
+
+      if(/판매가|현재가|구매가|최종가|할인가/.test(around))score+=8;
+      if(/\d+%/.test(line))score+=3;
+      if(/구매많음|선택|인기/.test(line))score+=3;
+      if(/정상가|기존가|할인\s*전|원래|정가/.test(around))score-=8;
+      if(/취소선|~~/.test(line))score-=8;
+
+      score+=Math.max(0,8-lineIndex*.18);
+      candidates.push({price,numeric,line,lineIndex,score,matchIndex:match.index});
+    }
+  });
+
+  candidates.sort((a,b)=>b.score-a.score||a.lineIndex-b.lineIndex||a.numeric-b.numeric);
+  return candidates;
+}
+
+function findReferencePriceIndex(lines,price){
+  if(!price)return-1;
+  const digits=price.replace(/[^\d]/g,"");
+  return lines.findIndex(line=>line.replace(/[^\d]/g,"").includes(digits));
+}
+
+function scoreTitleLine(line,distance){
+  let score=0;
+  const normalized=clean(line);
+  if(isNoiseLine(normalized))return-100;
+  if(/[가-힣A-Za-z]/.test(normalized))score+=3;
+  if(normalized.length>=8&&normalized.length<=80)score+=3;
+  if(/\d+(?:\.\d+)?\s*(?:ml|mL|l|L|g|kg|개|팩|봉|캔|병|입)/.test(normalized))score+=3;
+  if(/[,/]/.test(normalized))score+=1;
+  if(/^\d/.test(normalized)&&normalized.length<12)score-=3;
+  score+=Math.max(0,4-distance*.45);
+  return score;
+}
+
+function extractTitleFromOcr(text,price){
+  const lines=linesFromText(text);
+  if(!lines.length)return"";
+
+  let priceIndex=findReferencePriceIndex(lines,price);
+  if(priceIndex<0){
+    const firstPriceLine=lines.findIndex(line=>/\d{1,3}(?:,\d{3})+\s*원|\d{4,8}\s*원/.test(line));
+    priceIndex=firstPriceLine>=0?firstPriceLine:Math.min(lines.length,18);
+  }
+
+  const start=Math.max(0,priceIndex-10);
+  const pool=lines.slice(start,priceIndex);
+  const candidates=[];
+
+  for(let end=pool.length-1;end>=0;end--){
+    if(isNoiseLine(pool[end]))continue;
+
+    for(let size=1;size<=3;size++){
+      const begin=end-size+1;
+      if(begin<0)continue;
+      const group=pool.slice(begin,end+1);
+      if(group.some(isNoiseLine))continue;
+
+      const joined=clean(group.join(" "));
+      if(joined.length<5||joined.length>150)continue;
+
+      const distance=pool.length-1-end;
+      let score=group.reduce((sum,line,index)=>
+        sum+scoreTitleLine(line,distance+(group.length-1-index)*.2),0
+      );
+
+      if(/\d+(?:\.\d+)?\s*(?:ml|mL|l|L|g|kg|개|팩|봉|캔|병|입)/.test(joined))score+=4;
+      if(FOOD_KEYWORDS.some(word=>joined.includes(word)))score+=2;
+      if(LIVING_KEYWORDS.some(word=>joined.includes(word)))score+=2;
+      if(/원$/.test(joined))score-=8;
+
+      candidates.push({title:joined,score,distance});
+    }
+  }
+
+  candidates.sort((a,b)=>b.score-a.score||a.distance-b.distance||b.title.length-a.title.length);
+  return candidates[0]?.title||"";
+}
+
+function parseOcrText(text){
+  const priceCandidates=extractPriceCandidates(text);
+  const price=priceCandidates[0]?.price||"";
+  const title=extractTitleFromOcr(text,price);
+
+  return{
+    title,
+    price,
+    category:classify(title),
+    priceCandidates
+  };
 }
 
 function cleanPageTitle(title){
@@ -88,141 +253,92 @@ function cleanPageTitle(title){
     .trim();
 }
 
-function isPlausibleTitle(candidate,input){
+function isPlausibleTitle(candidate,reference){
   const title=cleanPageTitle(candidate);
   if(title.length<4||title.length>180)return false;
   if(/^(쿠팡|coupang|로그인|장바구니|검색)/i.test(title))return false;
-  return tokenSimilarity(title,input)>=0.34||hasProductEvidence(title,input);
+  return tokenSimilarity(title,reference)>=0.3||hasProductEvidence(title,reference);
 }
 
-function formatWon(raw){
-  const digits=String(raw).replace(/[^\d]/g,"");
-  if(!digits)return"";
-  const number=Number(digits);
-  if(!Number.isFinite(number)||number<100||number>100000000)return"";
-  return number.toLocaleString("ko-KR")+"원";
-}
-
-function extractTitleFromReader(text,input){
+function extractTitleFromReader(text,reference){
   if(!text)return"";
-  const lines=text.split(/\r?\n/).map(clean).filter(Boolean);
+  const lines=linesFromText(text);
   const titleLine=lines.find(line=>/^Title:\s*/i.test(line));
+
   if(titleLine){
     const candidate=cleanPageTitle(titleLine.replace(/^Title:\s*/i,""));
-    if(isPlausibleTitle(candidate,input))return candidate;
+    if(isPlausibleTitle(candidate,reference))return candidate;
   }
 
-  let best={text:"",score:0};
+  let best={title:"",score:0};
   for(const line of lines.slice(0,220)){
-    if(line.length<5||line.length>180)continue;
-    if(/^(URL Source|Markdown Content|Published Time|Warning|쿠팡 홈|카테고리)/i.test(line))continue;
-    let score=tokenSimilarity(line,input)*10;
-    if(/\d+\s*(?:ml|mL|l|L|g|kg|개|팩|봉|캔|병|입)/.test(line))score+=2;
-    if(/쿠팡|coupang/i.test(line))score-=1;
-    if(score>best.score){
-      best={text:cleanPageTitle(line.replace(/^#+\s*/,"")),score};
-    }
+    if(line.length<5||line.length>180||isNoiseLine(line))continue;
+    let score=tokenSimilarity(line,reference)*10;
+    if(/\d+(?:\.\d+)?\s*(?:ml|mL|l|L|g|kg|개|팩|봉|캔|병|입)/.test(line))score+=2;
+    if(score>best.score)best={title:cleanPageTitle(line.replace(/^#+\s*/,"")),score};
   }
-  return best.score>=4?best.text:"";
+  return best.score>=3.5?best.title:"";
 }
 
-function extractTitleFromMetadata(metadata,input){
-  const title=cleanPageTitle(metadata?.data?.title||"");
-  return isPlausibleTitle(title,input)?title:"";
+function extractMetadataTitle(metadata,reference){
+  const candidate=cleanPageTitle(metadata?.data?.title||"");
+  return isPlausibleTitle(candidate,reference)?candidate:"";
 }
 
-function configurationTokens(title){
-  return [...clean(title).matchAll(
-    /\d+(?:\.\d+)?\s*(?:kg|g|mg|ml|mL|L|l|개|팩|봉|캔|병|매|롤|박스|세트|입)/g
-  )].map(match=>match[0].replace(/\s+/g,"").toLowerCase());
-}
-
-function isUnitPriceMatch(line,matchIndex){
-  const before=line.slice(Math.max(0,matchIndex-18),matchIndex).toLowerCase();
-  return /(?:100\s*(?:ml|g)|10\s*g|개|1개)\s*당\s*$/.test(before);
-}
-
-function extractPrice(text,title){
+function extractWebPrice(text,title){
   if(!text)return"";
-  const lines=text.split(/\r?\n/).map(clean).filter(Boolean);
+  const lines=linesFromText(text);
   const titleIndex=lines.findIndex(line=>hasProductEvidence(line,title));
-  const configs=configurationTokens(title);
-  const candidates=[];
-  const priceRegex=/(\d{1,3}(?:,\d{3})+|\d{4,8})\s*원/g;
-
-  lines.forEach((line,index)=>{
-    let match;
-    while((match=priceRegex.exec(line))!==null){
-      if(isUnitPriceMatch(line,match.index))continue;
-
-      const price=formatWon(match[1]);
-      if(!price)continue;
-      const numeric=Number(price.replace(/[^\d]/g,""));
-      if(numeric<500)continue;
-
-      let score=0;
-      const lower=line.toLowerCase();
-      const compact=lower.replace(/\s+/g,"");
-
-      if(/판매가|할인가|쿠폰가|구매가|최종가|와우회원가|현재가/.test(line))score+=7;
-      if(/구매많음|선택|옵션|수량/.test(line))score+=2;
-      if(/배송|로켓/.test(line))score+=1;
-      if(configs.some(config=>compact.includes(config)))score+=5;
-
-      const around=line.slice(
-        Math.max(0,match.index-18),
-        Math.min(line.length,match.index+match[0].length+18)
-      );
-
-      if(/정가|기존가|할인\s*전|원래|정상가/.test(around))score-=7;
-      if(/~~[^~]*원[^~]*~~/.test(around)||line.includes(`~~${match[0]}~~`))score-=9;
-      if(line.length>180)score-=1;
-
-      candidates.push({price,numeric,line,index,score});
-    }
-  });
+  const candidates=extractPriceCandidates(text);
 
   candidates.forEach(candidate=>{
     if(titleIndex>=0){
-      const distance=candidate.index-titleIndex;
-      if(distance>=0&&distance<=8){
-        candidate.score+=7-distance*.55;
-      }else if(distance<0&&distance>=-2){
-        candidate.score+=2;
-      }
+      const distance=candidate.lineIndex-titleIndex;
+      if(distance>=0&&distance<=8)candidate.score+=7-distance*.55;
+      else if(distance<0&&distance>=-2)candidate.score+=2;
     }
   });
 
-  candidates.sort((a,b)=>b.score-a.score||a.numeric-b.numeric);
-  const best=candidates[0];
-  if(!best||best.score<2)return"";
-
-  state.logs.push(`가격 후보 선택: ${best.price} / 근거 문장: ${best.line}`);
-  return best.price;
+  candidates.sort((a,b)=>b.score-a.score||a.lineIndex-b.lineIndex);
+  return candidates[0]&&candidates[0].score>=2?candidates[0].price:"";
 }
 
-function buildBody(title,price,link){
+function buildBody(){
+  const title=clean($("recognizedTitle").value);
+  const price=formatWon($("recognizedPrice").value);
+  const link=clean($("partnerLink").value);
+
+  if(!title||!link)return"";
+
   const lines=[title];
   if(price)lines.push(price);
   lines.push(link);
-  lines.push(DISCLOSURE);
+
+  if($("includeDisclosure").checked){
+    lines.push(DISCLOSURE);
+  }
   return lines.join("\n");
 }
 
-function validate(){
-  const product=clean($("productName").value);
-  const link=clean($("partnerLink").value);
+function refreshBody(){
+  $("threadBody").value=buildBody();
+  $("bodyCount").textContent=$("threadBody").value.length;
+  saveDraft();
+}
 
-  if(!product){
-    showToast("상품명을 입력하세요.");
-    $("productName").focus();
+function validate(){
+  if(!state.files.length){
+    showToast("쿠팡 캡처 이미지를 선택하세요.");
     return false;
   }
+
+  const link=clean($("partnerLink").value);
   if(!link){
     showToast("쿠팡 파트너스 링크를 입력하세요.");
     $("partnerLink").focus();
     return false;
   }
+
   try{
     const url=new URL(link);
     if(!["http:","https:"].includes(url.protocol))throw new Error();
@@ -232,6 +348,112 @@ function validate(){
     return false;
   }
   return true;
+}
+
+function setProgress(percent,message){
+  $("progressPanel").classList.remove("hidden");
+  $("progressBar").style.width=`${Math.max(0,Math.min(100,percent))}%`;
+  $("progressText").textContent=message;
+}
+
+function setStep(id,status,text){
+  const element=$(id);
+  element.classList.remove("done","fail");
+  if(status)element.classList.add(status);
+  element.textContent=text;
+}
+
+function resetSteps(){
+  setStep("stepImage","","캡처 이미지 확인 대기");
+  setStep("stepOcr","","한글 OCR 대기");
+  setStep("stepLink","","쿠팡 링크 공개정보 확인 대기");
+  setStep("stepSearch","","웹검색 대조 대기");
+  setStep("stepBody","","본문 작성 대기");
+}
+
+async function fileToImage(file){
+  const url=URL.createObjectURL(file);
+  try{
+    const image=new Image();
+    image.decoding="async";
+    await new Promise((resolve,reject)=>{
+      image.onload=resolve;
+      image.onerror=reject;
+      image.src=url;
+    });
+    return image;
+  }finally{
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function preprocessImage(file){
+  const image=await fileToImage(file);
+  const targetWidth=Math.min(1800,Math.max(image.naturalWidth,1300));
+  const scale=Math.min(2.4,targetWidth/image.naturalWidth);
+  const width=Math.round(image.naturalWidth*scale);
+  const height=Math.round(image.naturalHeight*scale);
+
+  const canvas=document.createElement("canvas");
+  canvas.width=width;
+  canvas.height=height;
+  const context=canvas.getContext("2d",{willReadFrequently:true});
+  context.drawImage(image,0,0,width,height);
+
+  const imageData=context.getImageData(0,0,width,height);
+  const data=imageData.data;
+
+  for(let index=0;index<data.length;index+=4){
+    const gray=.299*data[index]+.587*data[index+1]+.114*data[index+2];
+    const contrast=Math.max(0,Math.min(255,(gray-128)*1.28+128));
+    data[index]=contrast;
+    data[index+1]=contrast;
+    data[index+2]=contrast;
+  }
+
+  context.putImageData(imageData,0,0);
+  return canvas;
+}
+
+async function runOcr(files){
+  if(!window.Tesseract)throw new Error("OCR 라이브러리를 불러오지 못했습니다.");
+
+  let currentFile=0;
+  const worker=await Tesseract.createWorker("kor+eng",1,{
+    logger:message=>{
+      if(message.status==="recognizing text"){
+        const progress=message.progress||0;
+        const overall=(currentFile+progress)/files.length;
+        setProgress(
+          12+overall*43,
+          `한글 OCR 중 ${currentFile+1}/${files.length} · ${Math.round(progress*100)}%`
+        );
+      }else if(message.status){
+        setProgress(
+          12+(currentFile/files.length)*43,
+          `OCR 준비: ${message.status}`
+        );
+      }
+    }
+  });
+
+  const texts=[];
+  try{
+    for(currentFile=0;currentFile<files.length;currentFile++){
+      const canvas=await preprocessImage(files[currentFile]);
+      const result=await worker.recognize(canvas,{},{
+        text:true,
+        blocks:false,
+        hocr:false,
+        tsv:false
+      });
+      texts.push(result.data.text||"");
+    }
+  }finally{
+    await worker.terminate();
+  }
+
+  return texts.join("\n\n===== 다음 캡처 =====\n\n");
 }
 
 async function fetchWithTimeout(url,options={}){
@@ -269,188 +491,251 @@ async function fetchJinaReader(targetUrl){
   return response.text();
 }
 
-async function fetchSearchPage(product){
-  const query=encodeURIComponent(`${product} 쿠팡`);
-  const searchUrls=[
-    `https://search.naver.com/search.naver?query=${query}`,
-    `https://www.bing.com/search?q=${query}`
+async function fetchSearch(reference){
+  const query=encodeURIComponent(`${reference} 쿠팡`);
+  const endpoints=[
+    `https://s.jina.ai/${query}`,
+    `https://r.jina.ai/https://www.bing.com/search?q=${query}`
   ];
 
   const results=[];
-  for(const url of searchUrls){
+  for(const endpoint of endpoints){
     try{
-      const text=await fetchJinaReader(url);
+      const response=await fetchWithTimeout(endpoint,{
+        headers:{"Accept":"text/plain"}
+      });
+      const text=await response.text();
       if(text&&text.length>100){
         results.push(text);
-        if(hasProductEvidence(text,product))break;
+        if(hasProductEvidence(text,reference))break;
       }
     }catch(error){
-      state.logs.push(`검색 페이지 확인 실패: ${error.message}`);
+      state.logs.push(`웹검색 확인 실패: ${error.message}`);
     }
   }
   return results.join("\n\n");
 }
 
-function setProgress(percent,message){
-  $("progressPanel").classList.remove("hidden");
-  $("progressBar").style.width=`${percent}%`;
-  $("progressText").textContent=message;
-}
-
-function setStep(id,status,text){
-  const element=$(id);
-  element.classList.remove("done","fail");
-  if(status)element.classList.add(status);
-  element.textContent=text;
-}
-
-function resetVerificationView(){
-  ["verifiedCategory","verifiedTitleStatus","verifiedSearchStatus","verifiedPriceStatus"]
-    .forEach(id=>$(id).textContent="확인 중");
-  $("verifiedTitle").value="";
-  $("verifiedPrice").value="";
-  $("verificationLog").textContent="웹 확인을 시작합니다.";
-  $("threadBody").value="";
-  $("bodyCount").textContent="0";
-  $("resultNotice").classList.add("hidden");
-  setStep("stepMetadata","", "링크 공개정보 확인 대기");
-  setStep("stepReader","", "상품 페이지 확인 대기");
-  setStep("stepSearch","", "상품명 웹검색 대기");
-  setStep("stepGenerate","", "본문 작성 대기");
-}
-
-async function verifyAndGenerate(){
+async function analyze(){
   if(!validate())return;
 
-  const product=clean($("productName").value);
-  const link=clean($("partnerLink").value);
-  const button=$("verifyBtn");
-
+  const button=$("analyzeBtn");
   button.disabled=true;
+  resetSteps();
+  setProgress(3,"캡처 이미지를 확인하고 있습니다.");
+
+  state.logs=[];
   state.metadata=null;
   state.readerText="";
   state.searchText="";
-  state.finalTitle="";
-  state.finalPrice="";
-  state.category=classify(product);
-  state.logs=[];
-  resetVerificationView();
-  $("verifiedCategory").textContent=state.category;
+  state.webTitle="";
+  state.webPrice="";
+
+  ["linkTitleStatus","titleMatchStatus","searchStatus","priceMatchStatus"]
+    .forEach(id=>$(id).textContent="확인 중");
+  $("webTitle").value="";
+  $("webPrice").value="";
+  $("verificationLog").textContent="분석을 시작합니다.";
+  $("resultNotice").classList.add("hidden");
 
   try{
-    setProgress(8,"쿠팡 링크의 공개정보를 확인하고 있습니다.");
+    setStep("stepImage","done",`${state.files.length}장 캡처 이미지 확인 완료`);
+
+    setProgress(10,"한글 OCR을 준비하고 있습니다.");
+    try{
+      state.ocrText=await runOcr(state.files);
+      $("ocrRawText").value=state.ocrText;
+      const parsed=parseOcrText(state.ocrText);
+
+      state.ocrTitle=parsed.title;
+      state.ocrPrice=parsed.price;
+      state.category=parsed.category;
+
+      $("recognizedTitle").value=state.ocrTitle;
+      $("recognizedPrice").value=state.ocrPrice;
+      $("recognizedCategory").value=state.category;
+
+      state.logs.push(`OCR 상품명: ${state.ocrTitle||"인식 실패"}`);
+      state.logs.push(`OCR 가격: ${state.ocrPrice||"인식 실패"}`);
+      if(parsed.priceCandidates.length){
+        state.logs.push(
+          "OCR 가격 후보: "+
+          parsed.priceCandidates.slice(0,4).map(item=>`${item.price} [${item.line}]`).join(" / ")
+        );
+      }
+
+      if(!state.ocrTitle){
+        throw new Error("상품명을 자동 추출하지 못했습니다.");
+      }
+      setStep("stepOcr","done","한글 OCR 및 상품정보 추출 완료");
+    }catch(error){
+      setStep("stepOcr","fail","OCR 자동 추출 일부 실패");
+      state.logs.push(`OCR 오류: ${error.message}`);
+      showToast("OCR 결과를 확인하고 상품명을 직접 수정할 수 있습니다.");
+    }
+
+    const link=clean($("partnerLink").value);
+    const reference=clean($("recognizedTitle").value)||state.ocrTitle;
+
+    setProgress(59,"쿠팡 링크의 공개정보를 확인하고 있습니다.");
     try{
       state.metadata=await fetchMicrolink(link);
-      setStep("stepMetadata","done","링크 공개정보 확인 완료");
-      state.logs.push(`공개 메타 제목: ${state.metadata?.data?.title||"없음"}`);
-    }catch(error){
-      setStep("stepMetadata","fail","링크 공개정보 확인 실패");
-      state.logs.push(`공개정보 오류: ${error.message}`);
-    }
-
-    setProgress(34,"상품 페이지의 공개 내용을 확인하고 있습니다.");
-    try{
       state.readerText=await fetchJinaReader(link);
-      if(state.readerText.length<80)throw new Error("페이지 내용이 너무 짧습니다.");
-      setStep("stepReader","done","상품 페이지 공개 내용 확인 완료");
-      state.logs.push(`페이지 텍스트 수신: ${state.readerText.length.toLocaleString()}자`);
+
+      const metadataTitle=extractMetadataTitle(state.metadata,reference);
+      const readerTitle=extractTitleFromReader(state.readerText,reference);
+
+      if(metadataTitle&&readerTitle){
+        state.webTitle=
+          tokenSimilarity(readerTitle,reference)>=tokenSimilarity(metadataTitle,reference)
+            ?readerTitle
+            :metadataTitle;
+      }else{
+        state.webTitle=readerTitle||metadataTitle||"";
+      }
+
+      state.webPrice=extractWebPrice(state.readerText,state.webTitle||reference);
+      $("webTitle").value=state.webTitle;
+      $("webPrice").value=state.webPrice;
+
+      $("linkTitleStatus").textContent=
+        state.webTitle?"링크에서 확인":"확인하지 못함";
+
+      state.logs.push(`링크 상품명: ${state.webTitle||"확인 실패"}`);
+      state.logs.push(`링크 가격: ${state.webPrice||"확인 실패"}`);
+      setStep("stepLink","done","쿠팡 링크 공개정보 확인 완료");
     }catch(error){
-      setStep("stepReader","fail","상품 페이지 확인 실패");
-      state.logs.push(`페이지 확인 오류: ${error.message}`);
+      $("linkTitleStatus").textContent="확인 실패";
+      setStep("stepLink","fail","쿠팡 링크 공개정보 확인 실패");
+      state.logs.push(`링크 확인 오류: ${error.message}`);
     }
 
-    setProgress(62,"상품명으로 웹검색 결과를 대조하고 있습니다.");
+    setProgress(78,"상품명으로 웹검색 결과를 대조하고 있습니다.");
     try{
-      state.searchText=await fetchSearchPage(product);
-      if(!state.searchText)throw new Error("검색 결과를 읽지 못했습니다.");
-      const matched=hasProductEvidence(state.searchText,product);
+      state.searchText=await fetchSearch(reference);
+      const searchMatch=hasProductEvidence(state.searchText,reference);
+      $("searchStatus").textContent=searchMatch?"검색 결과 일치":"대조 불충분";
       setStep(
         "stepSearch",
-        matched?"done":"fail",
-        matched?"상품명 웹검색 대조 완료":"검색 결과에서 충분한 일치정보를 찾지 못함"
+        searchMatch?"done":"fail",
+        searchMatch?"상품명 웹검색 대조 완료":"웹검색에서 충분한 일치정보를 찾지 못함"
       );
-      state.logs.push(`검색 결과 일치: ${matched?"예":"아니오"}`);
+      state.logs.push(`웹검색 일치: ${searchMatch?"예":"아니오"}`);
     }catch(error){
-      setStep("stepSearch","fail","상품명 웹검색 확인 실패");
+      $("searchStatus").textContent="확인 실패";
+      setStep("stepSearch","fail","웹검색 확인 실패");
       state.logs.push(`웹검색 오류: ${error.message}`);
     }
 
-    setProgress(82,"확인된 정보를 비교하고 있습니다.");
+    const currentTitle=clean($("recognizedTitle").value);
+    const currentPrice=formatWon($("recognizedPrice").value);
+    const titleSimilarity=state.webTitle
+      ?tokenSimilarity(currentTitle,state.webTitle)
+      :0;
 
-    const metadataTitle=extractTitleFromMetadata(state.metadata,product);
-    const readerTitle=extractTitleFromReader(state.readerText,product);
+    $("titleMatchStatus").textContent=
+      !state.webTitle?"링크 확인 불가":
+      titleSimilarity>=.48?"일치":
+      titleSimilarity>=.3?"유사·확인 필요":
+      "불일치·수정 필요";
 
-    if(readerTitle&&metadataTitle){
-      state.finalTitle=
-        tokenSimilarity(readerTitle,product)>=tokenSimilarity(metadataTitle,product)
-          ?readerTitle
-          :metadataTitle;
-    }else{
-      state.finalTitle=readerTitle||metadataTitle||product;
+    $("priceMatchStatus").textContent=
+      !currentPrice?"이미지 가격 없음":
+      !state.webPrice?"링크 가격 확인 불가":
+      currentPrice===state.webPrice?"일치":
+      "가격 다름·확인 필요";
+
+    if(!currentTitle&&state.webTitle){
+      $("recognizedTitle").value=state.webTitle;
+      $("recognizedCategory").value=classify(state.webTitle);
     }
 
-    const directEvidence=
-      hasProductEvidence(state.readerText,product)||
-      Boolean(metadataTitle);
-
-    const searchEvidence=hasProductEvidence(state.searchText,product);
-
-    $("verifiedTitleStatus").textContent=
-      directEvidence?"링크에서 확인":"입력 상품명 사용";
-    $("verifiedSearchStatus").textContent=
-      searchEvidence?"검색 결과 일치":"대조 불충분";
-
-    state.finalPrice=extractPrice(state.readerText,state.finalTitle);
-    $("verifiedPriceStatus").textContent=
-      state.finalPrice?"직접 페이지에서 확인":"확인하지 못함";
-    $("verifiedPrice").value=state.finalPrice;
-    $("verifiedTitle").value=state.finalTitle;
-
-    state.logs.push(`최종 상품명: ${state.finalTitle}`);
-    state.logs.push(`최종 가격: ${state.finalPrice||"생략"}`);
-    state.logs.push("가격은 직접 링크 페이지에서 확인된 경우에만 반영했습니다.");
-
-    $("threadBody").value=buildBody(state.finalTitle,state.finalPrice,link);
-    $("bodyCount").textContent=$("threadBody").value.length;
+    refreshBody();
+    setStep("stepBody","done","캡처 정보로 Threads 본문 작성 완료");
+    setProgress(100,"분석과 본문 작성이 완료됐습니다.");
 
     const notice=$("resultNotice");
     notice.classList.remove("hidden");
-    if(state.finalPrice){
+
+    if(currentPrice&&state.webPrice&&currentPrice!==state.webPrice){
       notice.textContent=
-        "상품명과 가격을 공개 페이지에서 확인했습니다. 게시 직전 쿠팡 상세페이지의 선택 옵션과 가격을 한 번 더 확인하세요.";
+        `캡처 가격 ${currentPrice}과 링크 확인 가격 ${state.webPrice}이 다릅니다. 본문에는 캡처에서 인식한 가격을 사용했으니 게시 전 현재 가격을 확인하세요.`;
+    }else if(currentPrice){
+      notice.textContent=
+        "본문에는 캡처 이미지에서 인식한 상품명과 가격을 사용했습니다. 인식 오류가 없는지 게시 전에 확인하세요.";
     }else{
       notice.textContent=
-        "현재 가격을 확실히 확인하지 못해 본문에서 가격을 생략했습니다. 임의 가격은 생성하지 않았습니다.";
+        "가격을 확실히 인식하지 못해 본문에서 가격을 생략했습니다. 가격 입력칸을 수정하면 본문에 자동 반영됩니다.";
     }
 
-    setStep("stepGenerate","done","확인된 정보로 본문 작성 완료");
-    setProgress(100,"본문 작성이 완료됐습니다.");
+    state.logs.push(`최종 본문 상품명: ${clean($("recognizedTitle").value)}`);
+    state.logs.push(`최종 본문 가격: ${formatWon($("recognizedPrice").value)||"생략"}`);
     $("verificationLog").textContent=state.logs.join("\n");
     saveDraft();
-    showToast("웹 확인 후 본문을 만들었습니다.");
-  }catch(error){
-    state.logs.push(`전체 처리 오류: ${error.message}`);
-    $("verificationLog").textContent=state.logs.join("\n");
-    setProgress(100,"일부 웹 확인에 실패해 입력한 상품명으로 본문을 만들었습니다.");
-
-    state.finalTitle=product;
-    state.finalPrice="";
-    $("verifiedTitle").value=product;
-    $("verifiedTitleStatus").textContent="입력 상품명 사용";
-    $("verifiedSearchStatus").textContent="확인 실패";
-    $("verifiedPriceStatus").textContent="생략";
-    $("threadBody").value=buildBody(product,"",link);
-    $("bodyCount").textContent=$("threadBody").value.length;
-    setStep("stepGenerate","done","가격 없이 안전하게 본문 작성 완료");
-
-    const notice=$("resultNotice");
-    notice.classList.remove("hidden");
-    notice.textContent=
-      "웹 확인이 완료되지 않아 입력한 상품명과 링크만 사용했습니다. 가격은 생성하지 않았습니다.";
-    showToast("웹 확인이 제한되어 가격 없는 본문을 만들었습니다.");
+    showToast("캡처 분석과 본문 작성이 완료됐습니다.");
   }finally{
     button.disabled=false;
   }
+}
+
+function reparseRawText(){
+  const raw=$("ocrRawText").value;
+  if(!clean(raw)){
+    showToast("다시 분석할 OCR 원문이 없습니다.");
+    return;
+  }
+
+  const parsed=parseOcrText(raw);
+  if(parsed.title)$("recognizedTitle").value=parsed.title;
+  if(parsed.price)$("recognizedPrice").value=parsed.price;
+  $("recognizedCategory").value=classify($("recognizedTitle").value);
+  refreshBody();
+  showToast("수정한 OCR 원문을 다시 분석했습니다.");
+}
+
+function renderPreviews(){
+  state.objectUrls.forEach(url=>URL.revokeObjectURL(url));
+  state.objectUrls=[];
+  const grid=$("previewGrid");
+  grid.innerHTML="";
+
+  state.files.forEach((file,index)=>{
+    const url=URL.createObjectURL(file);
+    state.objectUrls.push(url);
+
+    const item=document.createElement("div");
+    item.className="preview-item";
+
+    const image=document.createElement("img");
+    image.src=url;
+    image.alt=`쿠팡 캡처 ${index+1}`;
+
+    const remove=document.createElement("button");
+    remove.type="button";
+    remove.textContent="×";
+    remove.setAttribute("aria-label",`${index+1}번째 이미지 삭제`);
+    remove.addEventListener("click",()=>{
+      state.files.splice(index,1);
+      renderPreviews();
+    });
+
+    item.append(image,remove);
+    grid.append(item);
+  });
+
+  grid.classList.toggle("hidden",!state.files.length);
+}
+
+function handleFiles(event){
+  const selected=[...event.target.files].filter(file=>file.type.startsWith("image/"));
+  if(!selected.length)return;
+
+  state.files=selected.slice(0,MAX_FILES);
+  if(selected.length>MAX_FILES){
+    showToast("캡처 이미지는 최대 3장까지 사용할 수 있습니다.");
+  }
+  renderPreviews();
+  event.target.value="";
 }
 
 async function copyBody(){
@@ -459,6 +744,7 @@ async function copyBody(){
     showToast("복사할 본문이 없습니다.");
     return;
   }
+
   try{
     await navigator.clipboard.writeText(text);
   }catch{
@@ -466,6 +752,7 @@ async function copyBody(){
     $("threadBody").select();
     document.execCommand("copy");
   }
+
   const button=$("copyBtn");
   const old=button.textContent;
   button.textContent="복사됨";
@@ -473,57 +760,63 @@ async function copyBody(){
   setTimeout(()=>button.textContent=old,1100);
 }
 
-function foodSample(){
-  $("productName").value="해태제과 오예스 16+2 초코 파이 케이크 과자 540g 1개";
-  $("partnerLink").value="https://link.coupang.com/a/example";
-  saveDraft();
-  showToast("식품 예시를 입력했습니다. 실제 링크로 교체하세요.");
-}
-
-function livingSample(){
-  $("productName").value="유한락스 멀티액션 욕실청소용 세정제 510ml 3개";
-  $("partnerLink").value="https://link.coupang.com/a/example";
-  saveDraft();
-  showToast("생필품 예시를 입력했습니다. 실제 링크로 교체하세요.");
-}
-
 function resetAll(){
-  $("productName").value="";
-  $("partnerLink").value="";
-  $("threadBody").value="";
-  $("verifiedTitle").value="";
-  $("verifiedPrice").value="";
-  $("bodyCount").textContent="0";
-  $("verificationLog").textContent="아직 확인하지 않았습니다.";
-  ["verifiedCategory","verifiedTitleStatus","verifiedSearchStatus","verifiedPriceStatus"]
+  state.objectUrls.forEach(url=>URL.revokeObjectURL(url));
+  state.files=[];
+  state.objectUrls=[];
+  state.ocrText="";
+  state.ocrTitle="";
+  state.ocrPrice="";
+  state.webTitle="";
+  state.webPrice="";
+  state.logs=[];
+
+  $("previewGrid").innerHTML="";
+  $("previewGrid").classList.add("hidden");
+  [
+    "partnerLink","recognizedTitle","recognizedPrice","recognizedCategory",
+    "ocrRawText","webTitle","webPrice","threadBody"
+  ].forEach(id=>$(id).value="");
+
+  ["linkTitleStatus","titleMatchStatus","searchStatus","priceMatchStatus"]
     .forEach(id=>$(id).textContent="확인 전");
+
+  $("verificationLog").textContent="아직 확인하지 않았습니다.";
+  $("bodyCount").textContent="0";
   $("progressPanel").classList.add("hidden");
   $("resultNotice").classList.add("hidden");
-  localStorage.removeItem("threadsWebVerifyV8");
+  $("includeDisclosure").checked=true;
+  localStorage.removeItem("threadsCaptureV9");
   showToast("초기화했습니다.");
 }
 
 function saveDraft(){
-  localStorage.setItem("threadsWebVerifyV8",JSON.stringify({
-    productName:$("productName").value,
+  localStorage.setItem("threadsCaptureV9",JSON.stringify({
     partnerLink:$("partnerLink").value,
+    recognizedTitle:$("recognizedTitle").value,
+    recognizedPrice:$("recognizedPrice").value,
+    recognizedCategory:$("recognizedCategory").value,
+    ocrRawText:$("ocrRawText").value,
+    webTitle:$("webTitle").value,
+    webPrice:$("webPrice").value,
     threadBody:$("threadBody").value,
-    verifiedTitle:$("verifiedTitle").value,
-    verifiedPrice:$("verifiedPrice").value
+    includeDisclosure:$("includeDisclosure").checked
   }));
 }
 
 function restoreDraft(){
   try{
-    const data=JSON.parse(localStorage.getItem("threadsWebVerifyV8")||"{}");
-    $("productName").value=data.productName||"";
-    $("partnerLink").value=data.partnerLink||"";
-    $("threadBody").value=data.threadBody||"";
-    $("verifiedTitle").value=data.verifiedTitle||"";
-    $("verifiedPrice").value=data.verifiedPrice||"";
+    const data=JSON.parse(localStorage.getItem("threadsCaptureV9")||"{}");
+    [
+      "partnerLink","recognizedTitle","recognizedPrice","recognizedCategory",
+      "ocrRawText","webTitle","webPrice","threadBody"
+    ].forEach(id=>{
+      if(data[id]!==undefined)$(id).value=data[id];
+    });
+    $("includeDisclosure").checked=data.includeDisclosure!==false;
     $("bodyCount").textContent=$("threadBody").value.length;
   }catch{
-    localStorage.removeItem("threadsWebVerifyV8");
+    localStorage.removeItem("threadsCaptureV9");
   }
 }
 
@@ -532,7 +825,7 @@ function showToast(message){
   toast.textContent=message;
   toast.classList.add("show");
   clearTimeout(showToast.timer);
-  showToast.timer=setTimeout(()=>toast.classList.remove("show"),1800);
+  showToast.timer=setTimeout(()=>toast.classList.remove("show"),1900);
 }
 
 /* PWA */
@@ -542,6 +835,7 @@ window.addEventListener("beforeinstallprompt",event=>{
   deferredPrompt=event;
   $("installBtn").classList.remove("hidden");
 });
+
 $("installBtn").addEventListener("click",async()=>{
   if(!deferredPrompt)return;
   deferredPrompt.prompt();
@@ -549,6 +843,7 @@ $("installBtn").addEventListener("click",async()=>{
   deferredPrompt=null;
   $("installBtn").classList.add("hidden");
 });
+
 if("serviceWorker"in navigator&&location.protocol!=="file:"){
   window.addEventListener("load",()=>{
     navigator.serviceWorker.register("./sw.js").catch(()=>{});
@@ -556,16 +851,28 @@ if("serviceWorker"in navigator&&location.protocol!=="file:"){
 }
 
 /* Events */
-$("verifyBtn").addEventListener("click",verifyAndGenerate);
+$("captureFiles").addEventListener("change",handleFiles);
+$("analyzeBtn").addEventListener("click",analyze);
+$("reparseBtn").addEventListener("click",reparseRawText);
 $("copyBtn").addEventListener("click",copyBody);
-$("foodSampleBtn").addEventListener("click",foodSample);
-$("livingSampleBtn").addEventListener("click",livingSample);
 $("resetBtn").addEventListener("click",resetAll);
-["productName","partnerLink","threadBody"].forEach(id=>{
+
+["partnerLink","recognizedTitle","recognizedPrice","ocrRawText","threadBody"].forEach(id=>{
   $(id).addEventListener("input",()=>{
-    if(id==="threadBody")$("bodyCount").textContent=$(id).value.length;
-    saveDraft();
+    if(id==="recognizedTitle"){
+      $("recognizedCategory").value=classify($(id).value);
+      refreshBody();
+    }else if(id==="recognizedPrice"){
+      refreshBody();
+    }else if(id==="threadBody"){
+      $("bodyCount").textContent=$(id).value.length;
+      saveDraft();
+    }else{
+      saveDraft();
+    }
   });
 });
+
+$("includeDisclosure").addEventListener("change",refreshBody);
 
 restoreDraft();

@@ -1,4 +1,4 @@
-const CACHE="threads-web-verify-v8";
+const CACHE="threads-capture-v9";
 const ASSETS=[
   "./",
   "./index.html",
@@ -26,6 +26,9 @@ self.addEventListener("fetch",event=>{
   if(event.request.method!=="GET")return;
 
   const url=new URL(event.request.url);
+  const ownOrigin=url.origin===self.location.origin;
+  if(!ownOrigin)return;
+
   const networkFirst=[
     "index.html","styles.css","app.js","manifest.webmanifest"
   ].some(name=>url.pathname.endsWith(name))||url.pathname.endsWith("/");

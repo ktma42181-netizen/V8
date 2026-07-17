@@ -1,12 +1,12 @@
 {
-  "name": "Threads 웹 확인 본문 제작기",
-  "short_name": "웹확인 본문",
-  "description": "상품명과 쿠팡 링크를 공개 웹 정보와 대조해 Threads 본문을 만드는 도구",
+  "name": "Threads 캡처 본문 제작기",
+  "short_name": "캡처 본문",
+  "description": "쿠팡 상품 캡처 이미지에서 상품명과 가격을 인식하고 링크를 확인해 Threads 본문을 만드는 도구",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f4f6f8",
-  "theme_color": "#111827",
+  "theme_color": "#101828",
   "icons": [
     {
       "src": "icon.svg",
