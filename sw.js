@@ -1,4 +1,4 @@
-const CACHE="threads-capture-v9";
+const CACHE="threads-capture-v9-1";
 const ASSETS=[
   "./",
   "./index.html",

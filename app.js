@@ -45,6 +45,16 @@ const UI_NOISE_PATTERNS=[
   /^\d+%$/,/^\(?\d+(?:,\d+)*\)?$/,/^\d+\s*명/
 ];
 
+const TITLE_BLOCK_PATTERNS=[
+  /BEST\s*AWARDS/i,
+  /(?:국산\s*)?(?:생수|식품|생활용품|상품)\s*순위/i,
+  /\bTOP\s*\d*\b/i,
+  /추천\s*(?:순위|제품|상품)/i,
+  /랭킹|베스트\s*\d+|비교\s*추천/i,
+  /구매\s*후기|사용\s*후기|리뷰\s*모음/i,
+  /검색\s*결과|관련\s*검색어/i
+];
+
 const STOP_TOKENS=new Set([
   "쿠팡","coupang","로켓","배송","무료","상품","구매","판매","할인","정품",
   "1개","2개","3개","4개","5개","6개","세트","구성"
@@ -120,17 +130,32 @@ function linesFromText(text){
 }
 
 function isNoiseLine(line){
-  if(line.length<2)return true;
-  if(UI_NOISE_PATTERNS.some(pattern=>pattern.test(line)))return true;
-  if(/^[\d\s%,.()]+$/.test(line))return true;
-  if(/^[★☆⭐\s]+$/.test(line))return true;
-  if(/^https?:/i.test(line))return true;
+  const value=clean(line);
+  if(value.length<2)return true;
+  if(UI_NOISE_PATTERNS.some(pattern=>pattern.test(value)))return true;
+  if(TITLE_BLOCK_PATTERNS.some(pattern=>pattern.test(value)))return true;
+  if(/^[\d\s%,.()]+$/.test(value))return true;
+  if(/^[★☆⭐\s]+$/.test(value))return true;
+  if(/^https?:/i.test(value))return true;
+  if(/[<>#]{2,}/.test(value))return true;
+  if((value.match(/\b[A-Za-z]{1,2}\b/g)||[]).length>=4)return true;
   return false;
 }
 
 function isUnitPriceContext(line,index){
-  const before=line.slice(Math.max(0,index-22),index).toLowerCase();
-  return /(?:100\s*(?:ml|g)|10\s*g|개|1개)\s*당\s*$/.test(before);
+  const before=line.slice(Math.max(0,index-30),index).toLowerCase();
+  const after=line.slice(index,index+38).toLowerCase();
+
+  if(/(?:100\s*(?:ml|g)|10\s*g|1\s*(?:개|병|팩|봉)|개|병|팩|봉)\s*당\s*$/.test(before)){
+    return true;
+  }
+
+  if(/(?:100\s*(?:ml|g)|10\s*g|1\s*(?:개|병|팩|봉)|개|병|팩|봉)\s*당/.test(before+after)){
+    const wonBefore=(before.match(/\d[\d,]*\s*원/g)||[]).length;
+    if(wonBefore>=1)return true;
+  }
+
+  return false;
 }
 
 function extractPriceCandidates(text){
@@ -174,16 +199,191 @@ function findReferencePriceIndex(lines,price){
   return lines.findIndex(line=>line.replace(/[^\d]/g,"").includes(digits));
 }
 
-function scoreTitleLine(line,distance){
+function sanitizeProductTitle(raw){
+  let title=clean(raw)
+    .replace(/\(\s*\d{1,3}(?:,\d{3})+\s*\)/g," ")
+    .replace(/\b(?:BEST\s*AWARDS|TOP\s*\d*)\b/gi," ")
+    .replace(/[<>#|]+/g," ")
+    .replace(/[“”‘’`´]/g," ")
+    .replace(/\s*[,/]\s*/g,", ")
+    .replace(/\s+/g," ")
+    .trim();
+
+  title=title.replace(
+    /(?:\b[A-Za-z]{1,2}\b[\s,]*){4,}/g,
+    " "
+  );
+
+  title=title
+    .replace(/^\s*[-,:;]+\s*/,"")
+    .replace(/\s*[-,:;]+\s*$/,"")
+    .replace(/\s+/g," ")
+    .trim();
+
+  const parts=title.split(" ");
+  if(parts.length>=2&&parts[0]===parts[1]){
+    parts.shift();
+    title=parts.join(" ");
+  }
+
+  return title;
+}
+
+function titleQuality(raw){
+  const title=sanitizeProductTitle(raw);
+  const hangulCount=(title.match(/[가-힣]/g)||[]).length;
+  const letterCount=(title.match(/[가-힣A-Za-z]/g)||[]).length;
+  const symbolCount=(title.match(/[<>#|{}[\]]/g)||[]).length;
+  const shortLatinCount=(title.match(/\b[A-Za-z]{1,2}\b/g)||[]).length;
+  const hasUnit=/\d+(?:\.\d+)?\s*(?:ml|mL|l|L|g|kg|mg|개|팩|봉|캔|병|매|롤|박스|세트|입)/.test(title);
+  const blocked=TITLE_BLOCK_PATTERNS.some(pattern=>pattern.test(title));
+
   let score=0;
-  const normalized=clean(line);
-  if(isNoiseLine(normalized))return-100;
-  if(/[가-힣A-Za-z]/.test(normalized))score+=3;
-  if(normalized.length>=8&&normalized.length<=80)score+=3;
-  if(/\d+(?:\.\d+)?\s*(?:ml|mL|l|L|g|kg|개|팩|봉|캔|병|입)/.test(normalized))score+=3;
-  if(/[,/]/.test(normalized))score+=1;
-  if(/^\d/.test(normalized)&&normalized.length<12)score-=3;
-  score+=Math.max(0,4-distance*.45);
+  if(title.length>=5&&title.length<=120)score+=2;
+  if(hangulCount>=3)score+=3;
+  if(letterCount>=5)score+=1;
+  if(hasUnit)score+=5;
+  if(FOOD_KEYWORDS.some(word=>title.includes(word)))score+=2;
+  if(LIVING_KEYWORDS.some(word=>title.includes(word)))score+=2;
+  if(blocked)score-=10;
+  if(symbolCount>0)score-=7;
+  if(shortLatinCount>=4)score-=7;
+  if(hangulCount===0)score-=5;
+  if(title.length>90&&!hasUnit)score-=3;
+
+  return{
+    title,
+    score,
+    hasUnit,
+    blocked,
+    valid:Boolean(
+      title&&
+      score>=4&&
+      !blocked&&
+      symbolCount===0&&
+      hangulCount>=2&&
+      shortLatinCount<4
+    )
+  };
+}
+
+function extractPackageCount(title){
+  const matches=[
+    ...clean(title).matchAll(
+      /(\d+)\s*(?:개|팩|봉|캔|병|매|롤|박스|세트|입)/g
+    )
+  ];
+  if(!matches.length)return 1;
+  return Math.max(...matches.map(match=>Number(match[1])||1));
+}
+
+function isSuspiciousBundlePrice(title,price){
+  const numeric=Number(String(price||"").replace(/[^\d]/g,""));
+  if(!numeric)return false;
+
+  const count=extractPackageCount(title);
+  const category=classify(title);
+
+  if(count>=10&&numeric<1500)return true;
+  if(count>=6&&/(?:생수|물|음료|우유|두유)/.test(title)&&numeric<4000){
+    return true;
+  }
+  if(count>=3&&category==="생필품"&&numeric<1000)return true;
+
+  return false;
+}
+
+function chooseOcrPrice(candidates,title){
+  const ordered=[...candidates].sort(
+    (a,b)=>b.score-a.score||a.lineIndex-b.lineIndex
+  );
+
+  const safe=ordered.find(candidate=>
+    !isSuspiciousBundlePrice(title,candidate.price)
+  );
+
+  return safe?.price||"";
+}
+
+function reconcileProductData(ocrTitle,ocrPrice,webTitle,webPrice){
+  const ocr=titleQuality(ocrTitle);
+  const web=titleQuality(webTitle);
+  const similarity=ocr.title&&web.title
+    ?tokenSimilarity(ocr.title,web.title)
+    :0;
+
+  let title="";
+  let titleSource="none";
+
+  if(ocr.valid&&web.valid){
+    if(similarity>=.35){
+      title=ocr.score+2>=web.score?ocr.title:web.title;
+      titleSource=title===ocr.title?"ocr":"web";
+    }else if(web.hasUnit&&web.score>=ocr.score+1){
+      title=web.title;
+      titleSource="web";
+    }else if(ocr.hasUnit&&ocr.score>=web.score+2){
+      title=ocr.title;
+      titleSource="ocr";
+    }
+  }else if(ocr.valid){
+    title=ocr.title;
+    titleSource="ocr";
+  }else if(web.valid){
+    title=web.title;
+    titleSource="web";
+  }
+
+  let imagePrice=formatWon(ocrPrice);
+  let verifiedPrice=formatWon(webPrice);
+
+  if(imagePrice&&isSuspiciousBundlePrice(title||ocr.title,imagePrice)){
+    imagePrice="";
+  }
+  if(verifiedPrice&&isSuspiciousBundlePrice(title||web.title,verifiedPrice)){
+    verifiedPrice="";
+  }
+
+  let price=imagePrice;
+  let priceSource=imagePrice?"ocr":"none";
+
+  const webMatchesTitle=Boolean(
+    title&&web.valid&&tokenSimilarity(title,web.title)>=.35
+  );
+
+  if(!price&&verifiedPrice&&webMatchesTitle){
+    price=verifiedPrice;
+    priceSource="web";
+  }else if(price&&verifiedPrice&&webMatchesTitle){
+    const imageNumber=Number(price.replace(/[^\d]/g,""));
+    const webNumber=Number(verifiedPrice.replace(/[^\d]/g,""));
+    const ratio=imageNumber/webNumber;
+
+    if(ratio<.62||ratio>1.62){
+      price=verifiedPrice;
+      priceSource="web";
+    }
+  }
+
+  return{
+    title,
+    price,
+    titleSource,
+    priceSource,
+    similarity,
+    ocrQuality:ocr,
+    webQuality:web
+  };
+}
+
+function scoreTitleLine(line,distance){
+  const quality=titleQuality(line);
+  if(isNoiseLine(line)||!quality.title)return-100;
+
+  let score=quality.score;
+  if(quality.hasUnit)score+=4;
+  if(/[,/]/.test(quality.title))score+=1;
+  score+=Math.max(0,4-distance*.55);
   return score;
 }
 
@@ -193,53 +393,68 @@ function extractTitleFromOcr(text,price){
 
   let priceIndex=findReferencePriceIndex(lines,price);
   if(priceIndex<0){
-    const firstPriceLine=lines.findIndex(line=>/\d{1,3}(?:,\d{3})+\s*원|\d{4,8}\s*원/.test(line));
+    const firstPriceLine=lines.findIndex(line=>
+      /\d{1,3}(?:,\d{3})+\s*원|\d{4,8}\s*원/.test(line)
+    );
     priceIndex=firstPriceLine>=0?firstPriceLine:Math.min(lines.length,18);
   }
 
-  const start=Math.max(0,priceIndex-10);
+  const start=Math.max(0,priceIndex-12);
   const pool=lines.slice(start,priceIndex);
   const candidates=[];
 
   for(let end=pool.length-1;end>=0;end--){
     if(isNoiseLine(pool[end]))continue;
 
-    for(let size=1;size<=3;size++){
+    for(let size=1;size<=2;size++){
       const begin=end-size+1;
       if(begin<0)continue;
+
       const group=pool.slice(begin,end+1);
       if(group.some(isNoiseLine))continue;
 
-      const joined=clean(group.join(" "));
-      if(joined.length<5||joined.length>150)continue;
+      const joined=sanitizeProductTitle(group.join(" "));
+      const quality=titleQuality(joined);
+      if(!quality.valid)continue;
 
       const distance=pool.length-1-end;
-      let score=group.reduce((sum,line,index)=>
-        sum+scoreTitleLine(line,distance+(group.length-1-index)*.2),0
-      );
+      let score=quality.score*2;
 
-      if(/\d+(?:\.\d+)?\s*(?:ml|mL|l|L|g|kg|개|팩|봉|캔|병|입)/.test(joined))score+=4;
-      if(FOOD_KEYWORDS.some(word=>joined.includes(word)))score+=2;
-      if(LIVING_KEYWORDS.some(word=>joined.includes(word)))score+=2;
-      if(/원$/.test(joined))score-=8;
+      if(quality.hasUnit)score+=7;
+      score+=Math.max(0,5-distance*.7);
 
-      candidates.push({title:joined,score,distance});
+      candidates.push({
+        title:quality.title,
+        score,
+        distance,
+        hasUnit:quality.hasUnit
+      });
     }
   }
 
-  candidates.sort((a,b)=>b.score-a.score||a.distance-b.distance||b.title.length-a.title.length);
+  candidates.sort(
+    (a,b)=>
+      b.score-a.score||
+      Number(b.hasUnit)-Number(a.hasUnit)||
+      a.distance-b.distance||
+      b.title.length-a.title.length
+  );
+
   return candidates[0]?.title||"";
 }
 
 function parseOcrText(text){
   const priceCandidates=extractPriceCandidates(text);
-  const price=priceCandidates[0]?.price||"";
-  const title=extractTitleFromOcr(text,price);
+  const provisionalPrice=priceCandidates[0]?.price||"";
+  const title=extractTitleFromOcr(text,provisionalPrice);
+  const price=chooseOcrPrice(priceCandidates,title);
+  const quality=titleQuality(title);
 
   return{
-    title,
+    title:quality.valid?quality.title:"",
     price,
-    category:classify(title),
+    category:classify(quality.title),
+    titleQuality:quality,
     priceCandidates
   };
 }
@@ -254,10 +469,16 @@ function cleanPageTitle(title){
 }
 
 function isPlausibleTitle(candidate,reference){
-  const title=cleanPageTitle(candidate);
-  if(title.length<4||title.length>180)return false;
-  if(/^(쿠팡|coupang|로그인|장바구니|검색)/i.test(title))return false;
-  return tokenSimilarity(title,reference)>=0.3||hasProductEvidence(title,reference);
+  const quality=titleQuality(cleanPageTitle(candidate));
+  if(!quality.valid)return false;
+
+  const referenceQuality=titleQuality(reference);
+  if(!referenceQuality.title)return quality.hasUnit;
+
+  return(
+    tokenSimilarity(quality.title,referenceQuality.title)>=.25||
+    hasProductEvidence(quality.title,referenceQuality.title)
+  );
 }
 
 function extractTitleFromReader(text,reference){
@@ -304,19 +525,24 @@ function extractWebPrice(text,title){
 }
 
 function buildBody(){
-  const title=clean($("recognizedTitle").value);
-  const price=formatWon($("recognizedPrice").value);
+  const quality=titleQuality($("recognizedTitle").value);
   const link=clean($("partnerLink").value);
 
-  if(!title||!link)return"";
+  if(!quality.valid||!link)return"";
 
-  const lines=[title];
+  let price=formatWon($("recognizedPrice").value);
+  if(price&&isSuspiciousBundlePrice(quality.title,price)){
+    price="";
+  }
+
+  const lines=[quality.title];
   if(price)lines.push(price);
   lines.push(link);
 
   if($("includeDisclosure").checked){
     lines.push(DISCLOSURE);
   }
+
   return lines.join("\n");
 }
 
@@ -627,28 +853,40 @@ async function analyze(){
       state.logs.push(`웹검색 오류: ${error.message}`);
     }
 
-    const currentTitle=clean($("recognizedTitle").value);
-    const currentPrice=formatWon($("recognizedPrice").value);
-    const titleSimilarity=state.webTitle
-      ?tokenSimilarity(currentTitle,state.webTitle)
-      :0;
+    const originalOcrTitle=clean($("recognizedTitle").value);
+    const originalOcrPrice=formatWon($("recognizedPrice").value);
+
+    const reconciled=reconcileProductData(
+      originalOcrTitle,
+      originalOcrPrice,
+      state.webTitle,
+      state.webPrice
+    );
+
+    $("recognizedTitle").value=reconciled.title;
+    $("recognizedPrice").value=reconciled.price;
+    $("recognizedCategory").value=classify(reconciled.title);
 
     $("titleMatchStatus").textContent=
-      !state.webTitle?"링크 확인 불가":
-      titleSimilarity>=.48?"일치":
-      titleSimilarity>=.3?"유사·확인 필요":
-      "불일치·수정 필요";
+      !reconciled.title?"자동 확정 실패":
+      reconciled.titleSource==="web"?"링크 정보로 자동 보정":
+      reconciled.similarity>=.48?"이미지·링크 일치":
+      state.webTitle?"이미지 우선·확인 필요":
+      "이미지 정보 사용";
 
     $("priceMatchStatus").textContent=
-      !currentPrice?"이미지 가격 없음":
-      !state.webPrice?"링크 가격 확인 불가":
-      currentPrice===state.webPrice?"일치":
-      "가격 다름·확인 필요";
+      !reconciled.price?"가격 자동 제외":
+      reconciled.priceSource==="web"?"링크 가격으로 자동 보정":
+      state.webPrice&&reconciled.price===state.webPrice?"이미지·링크 일치":
+      state.webPrice?"이미지 가격 우선":
+      "이미지 가격 사용";
 
-    if(!currentTitle&&state.webTitle){
-      $("recognizedTitle").value=state.webTitle;
-      $("recognizedCategory").value=classify(state.webTitle);
-    }
+    state.logs.push(
+      `상품명 최종 선택: ${reconciled.title||"차단"} / 출처: ${reconciled.titleSource}`
+    );
+    state.logs.push(
+      `가격 최종 선택: ${reconciled.price||"생략"} / 출처: ${reconciled.priceSource}`
+    );
 
     refreshBody();
     setStep("stepBody","done","캡처 정보로 Threads 본문 작성 완료");
@@ -657,15 +895,21 @@ async function analyze(){
     const notice=$("resultNotice");
     notice.classList.remove("hidden");
 
-    if(currentPrice&&state.webPrice&&currentPrice!==state.webPrice){
+    if(!$("threadBody").value.trim()){
       notice.textContent=
-        `캡처 가격 ${currentPrice}과 링크 확인 가격 ${state.webPrice}이 다릅니다. 본문에는 캡처에서 인식한 가격을 사용했으니 게시 전 현재 가격을 확인하세요.`;
-    }else if(currentPrice){
+        "깨진 OCR 문장이나 순위·리뷰 문구가 감지되어 본문 생성을 중지했습니다. 인식된 상품명을 직접 수정하면 본문이 자동으로 생성됩니다.";
+    }else if(
+      $("titleMatchStatus").textContent.includes("자동 보정")||
+      $("priceMatchStatus").textContent.includes("자동 보정")
+    ){
       notice.textContent=
-        "본문에는 캡처 이미지에서 인식한 상품명과 가격을 사용했습니다. 인식 오류가 없는지 게시 전에 확인하세요.";
+        "깨진 OCR 결과 또는 단위가격을 차단하고 링크에서 확인된 상품정보로 자동 보정했습니다. 게시 전에 상품명과 현재 가격을 한 번 더 확인하세요.";
+    }else if($("recognizedPrice").value){
+      notice.textContent=
+        "본문에는 검증을 통과한 상품명과 가격만 사용했습니다. 게시 전에 쿠팡의 현재 선택 옵션과 가격을 확인하세요.";
     }else{
       notice.textContent=
-        "가격을 확실히 인식하지 못해 본문에서 가격을 생략했습니다. 가격 입력칸을 수정하면 본문에 자동 반영됩니다.";
+        "총가격을 확실히 확인하지 못했거나 단위가격으로 판단되어 가격을 본문에서 제외했습니다.";
     }
 
     state.logs.push(`최종 본문 상품명: ${clean($("recognizedTitle").value)}`);
