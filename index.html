@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="상품명과 쿠팡 파트너스 링크를 웹에서 확인해 Threads 본문을 만드는 도구">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <title>Threads 웹 확인 본문 제작기</title>
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">WEB VERIFY · FOOD & DAILY GOODS</p>
+      <h1>Threads 웹 확인 본문 제작기</h1>
+      <p>상품명과 쿠팡 링크를 공개 웹 정보와 대조한 뒤 짧은 본문을 만듭니다.</p>
+    </div>
+    <button id="installBtn" class="button secondary hidden" type="button">홈 화면에 설치</button>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <div class="section-head">
+        <b>1</b>
+        <div>
+          <h2>상품 정보 입력</h2>
+          <p>상품명과 쿠팡 파트너스 링크만 입력하세요.</p>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <label class="field">
+          <span>상품명 *</span>
+          <textarea id="productName" rows="4" placeholder="예: 유한락스 멀티액션 욕실청소용 세정제 510ml 3개"></textarea>
+        </label>
+
+        <label class="field">
+          <span>쿠팡 파트너스 링크 *</span>
+          <input id="partnerLink" type="url" inputmode="url" placeholder="https://link.coupang.com/a/...">
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="verifyBtn" class="button primary" type="button">웹 확인 후 본문 만들기</button>
+        <button id="foodSampleBtn" class="button secondary" type="button">식품 예시</button>
+        <button id="livingSampleBtn" class="button secondary" type="button">생필품 예시</button>
+        <button id="resetBtn" class="button ghost" type="button">초기화</button>
+      </div>
+
+      <div id="progressPanel" class="progress-panel hidden" aria-live="polite">
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <strong id="progressText">웹 정보를 확인하고 있습니다.</strong>
+        <ol id="progressSteps">
+          <li id="stepMetadata">링크 공개정보 확인 대기</li>
+          <li id="stepReader">상품 페이지 확인 대기</li>
+          <li id="stepSearch">상품명 웹검색 대기</li>
+          <li id="stepGenerate">본문 작성 대기</li>
+        </ol>
+      </div>
+
+      <p class="warning">
+        외부 웹서비스나 쿠팡 페이지가 일시적으로 응답하지 않을 수 있습니다.
+        프로그램은 가격을 직접 확인하지 못하면 가격을 생략하며, 할인율·후기·별점·배송정보는 본문에 사용하지 않습니다.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <b>2</b>
+        <div>
+          <h2>웹 확인 결과</h2>
+          <p>어떤 정보가 확인됐는지 먼저 보여줍니다.</p>
+        </div>
+      </div>
+
+      <div class="verification-grid">
+        <div class="verification-item">
+          <span>상품 분류</span>
+          <strong id="verifiedCategory">확인 전</strong>
+        </div>
+        <div class="verification-item">
+          <span>상품명 확인</span>
+          <strong id="verifiedTitleStatus">확인 전</strong>
+        </div>
+        <div class="verification-item">
+          <span>웹검색 대조</span>
+          <strong id="verifiedSearchStatus">확인 전</strong>
+        </div>
+        <div class="verification-item">
+          <span>가격 확인</span>
+          <strong id="verifiedPriceStatus">확인 전</strong>
+        </div>
+      </div>
+
+      <label class="field result-field">
+        <span>확인된 상품명</span>
+        <textarea id="verifiedTitle" rows="4" readonly placeholder="웹 확인 후 표시됩니다."></textarea>
+      </label>
+
+      <label class="field result-field">
+        <span>확인된 현재 가격</span>
+        <input id="verifiedPrice" type="text" readonly placeholder="확인되지 않으면 비워둡니다.">
+      </label>
+
+      <details class="details">
+        <summary>확인 기록 보기</summary>
+        <pre id="verificationLog">아직 확인하지 않았습니다.</pre>
+      </details>
+    </section>
+
+    <section class="card output-card">
+      <div class="section-head">
+        <b>3</b>
+        <div>
+          <h2>Threads 본문</h2>
+          <p>확인된 정보만 사용한 본문입니다.</p>
+        </div>
+      </div>
+
+      <article class="output">
+        <div class="output-title">
+          <h3>본문</h3>
+          <small><span id="bodyCount">0</span>자</small>
+        </div>
+        <textarea id="threadBody" rows="10" placeholder="웹 확인 후 본문 만들기를 누르면 표시됩니다."></textarea>
+        <button id="copyBtn" class="button copy" type="button">본문 복사</button>
+      </article>
+
+      <p id="resultNotice" class="result-notice hidden"></p>
+    </section>
+
+    <section class="card guide">
+      <div class="section-head">
+        <b>4</b>
+        <div>
+          <h2>Threads 게시</h2>
+        </div>
+      </div>
+      <ol>
+        <li>생성된 본문을 복사합니다.</li>
+        <li>Threads 새 게시물에 붙여 넣습니다.</li>
+        <li>쿠팡이 링크 정보를 정상적으로 제공하면 상품 미리보기 카드가 자동 표시될 수 있습니다.</li>
+        <li>게시 전 상품명·구성·가격이 실제 상세페이지와 일치하는지 마지막으로 확인하세요.</li>
+      </ol>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <footer>공개 웹 정보 확인형 · 가격을 확인하지 못하면 자동 생략</footer>
+  <script src="app.js"></script>
+</body>
+</html>
