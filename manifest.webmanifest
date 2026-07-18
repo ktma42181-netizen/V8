@@ -1,12 +1,10 @@
 {
-  "name": "Threads 캡처 본문 제작기",
-  "short_name": "캡처 본문",
-  "description": "쿠팡 상품 캡처 이미지에서 상품명과 가격을 인식하고 링크를 확인해 Threads 본문을 만드는 도구",
+  "name": "Threads 이미지 본문 작성기 V10",
+  "short_name": "Threads V10",
   "start_url": "./",
-  "scope": "./",
   "display": "standalone",
-  "background_color": "#f4f6f8",
-  "theme_color": "#101828",
+  "background_color": "#f3f5f9",
+  "theme_color": "#0f172a",
   "icons": [
     {
       "src": "icon.svg",

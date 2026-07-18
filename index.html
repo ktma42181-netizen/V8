@@ -1,208 +1,155 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#101828">
-  <meta name="description" content="쿠팡 상품 캡처 이미지에서 상품명과 가격을 인식하고 링크를 확인해 Threads 본문을 만드는 도구">
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css">
-  <title>Threads 캡처 본문 제작기</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Threads 이미지 본문 작성기 V10</title>
+  <meta name="theme-color" content="#0f172a" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="hero">
-    <div>
-      <p class="eyebrow">SCREENSHOT OCR · MANUAL CONFIRM V9.2</p>
-      <h1>Threads 캡처 본문 제작기</h1>
-      <p>쿠팡 상품 페이지 캡처에서 상품명·구성·가격을 읽고 링크 정보와 대조합니다.</p>
-    </div>
-    <button id="installBtn" class="button secondary hidden" type="button">홈 화면에 설치</button>
-  </header>
+  <main class="app-shell">
+    <header class="hero">
+      <p class="eyebrow">IMAGE OCR · 2 LINKS · THREADS STYLE</p>
+      <h1>Threads 이미지 본문 작성기</h1>
+      <p class="hero-copy">상품 이미지를 넣으면 이미지에 적힌 <strong>상품명 · 중량/수량 · 가격</strong>을 읽어 본문을 만듭니다. 링크는 최대 2개까지 본문에 넣을 수 있습니다.</p>
+    </header>
 
-  <main class="container">
-    <section class="card input-card">
-      <div class="section-head">
-        <b>1</b>
-        <div>
-          <h2>쿠팡 캡처와 링크 입력</h2>
-          <p>상품명 입력은 필요하지 않습니다. 상품명과 현재 가격이 보이는 화면을 캡처하세요.</p>
-        </div>
+    <section class="card">
+      <div class="section-badge">1</div>
+      <div class="section-header">
+        <h2>이미지와 링크 입력</h2>
+        <p>첨부한 이미지 기준으로 OCR 분석을 진행합니다.</p>
       </div>
 
-      <label class="upload-box" for="captureFiles">
-        <input id="captureFiles" type="file" accept="image/*" multiple>
-        <span class="upload-icon">＋</span>
-        <strong>쿠팡 캡처 이미지 선택</strong>
-        <small>1~3장 · JPG, PNG, WEBP</small>
+      <label class="upload-box" for="imageInput">
+        <input id="imageInput" type="file" accept="image/*" multiple />
+        <span class="upload-title">상품 이미지 업로드</span>
+        <span class="upload-desc">최대 3장까지 업로드 가능 · 첫 번째 이미지가 대표 미리보기로 사용됩니다.</span>
       </label>
 
-      <div id="previewGrid" class="preview-grid hidden"></div>
+      <div id="previewGrid" class="preview-grid empty"></div>
 
-      <label class="field link-field">
-        <span>쿠팡 파트너스 링크 *</span>
-        <input id="partnerLink" type="url" inputmode="url" placeholder="https://link.coupang.com/a/...">
-      </label>
-
-      <div class="actions">
-        <button id="analyzeBtn" class="button primary" type="button">이미지 분석 + 링크 확인</button>
-        <button id="resetBtn" class="button ghost" type="button">초기화</button>
+      <div class="grid two">
+        <label class="field">
+          <span>링크 주소 1</span>
+          <input id="link1" type="url" placeholder="https://link.coupang.com/a/..." />
+        </label>
+        <label class="field">
+          <span>링크 주소 2</span>
+          <input id="link2" type="url" placeholder="https://link.coupang.com/a/..." />
+        </label>
       </div>
 
-      <div id="progressPanel" class="progress-panel hidden" aria-live="polite">
-        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
-        <strong id="progressText">준비 중입니다.</strong>
-        <ol>
-          <li id="stepImage">캡처 이미지 확인 대기</li>
-          <li id="stepOcr">한글 OCR 대기</li>
-          <li id="stepLink">쿠팡 링크 공개정보 확인 대기</li>
-          <li id="stepSearch">웹검색 대조 대기</li>
-          <li id="stepBody">본문 작성 대기</li>
-        </ol>
-      </div>
-
-      <p class="warning">
-        첫 OCR 실행은 한글 인식 파일을 내려받기 때문에 시간이 걸릴 수 있습니다.
-        깨진 OCR 문구와 단위가격은 자동 차단하지만, 본문 생성 전 상품명·용량·수량을 사용자가 직접 확인하고 확정해야 합니다.
-      </p>
-    </section>
-
-    <section class="card result-card">
-      <div class="section-head">
-        <b>2</b>
-        <div>
-          <h2>상품명·규격 확인</h2>
-          <p>자동 인식 결과를 확인한 뒤 반드시 상품명을 확정해야 합니다.</p>
-        </div>
+      <div class="grid two">
+        <label class="field">
+          <span>본문 스타일</span>
+          <select id="bodyStyle">
+            <option value="simple">이미지형 기본</option>
+            <option value="sale">가격변동형 (예: 8,000원 -> 7,030원)</option>
+            <option value="promo">광고+강조형</option>
+          </select>
+        </label>
+        <label class="field checkbox-field">
+          <span>광고/수수료 문구 포함</span>
+          <label class="toggle">
+            <input id="includeDisclosure" type="checkbox" checked />
+            <span class="toggle-ui"></span>
+          </label>
+        </label>
       </div>
 
       <label class="field">
-        <span>자동 인식 상품명·규격 후보</span>
-        <textarea id="recognizedTitle" rows="4" placeholder="이미지 분석 후 후보가 표시됩니다."></textarea>
+        <span>강조 문구 (선택)</span>
+        <input id="hookText" type="text" placeholder="예: 🔥 애들아!! 쿠팡 과자 미쳤다!! 🔥" />
       </label>
 
-      <div class="confirmation-box" id="titleConfirmationBox">
-        <div>
-          <span class="confirmation-label">상품명 확인 상태</span>
-          <strong id="titleConfirmStatus">분석 후 확인 필요</strong>
-          <p>상품명·용량·수량이 정확한지 확인한 후 확정하세요. 확정 전에는 본문이 생성되지 않습니다.</p>
-        </div>
-        <div class="confirmation-actions">
-          <button id="useWebTitleBtn" class="button secondary" type="button" disabled>링크 상품명 사용</button>
-          <button id="confirmTitleBtn" class="button confirm-button" type="button" disabled>이 상품명으로 확정</button>
-        </div>
+      <div class="button-row">
+        <button id="analyzeBtn" class="button primary" type="button">이미지 분석 후 본문 만들기</button>
+        <button id="resetBtn" class="button secondary" type="button">초기화</button>
       </div>
-
-      <div class="two-column">
-        <label class="field">
-          <span>인식된 현재 가격</span>
-          <input id="recognizedPrice" type="text" inputmode="numeric" placeholder="예: 10,900원">
-        </label>
-        <label class="field">
-          <span>상품 분류</span>
-          <input id="recognizedCategory" type="text" readonly placeholder="식품 또는 생필품">
-        </label>
-      </div>
-
-      <details class="details">
-        <summary>OCR 원문 확인</summary>
-        <textarea id="ocrRawText" rows="11" placeholder="이미지에서 인식한 전체 텍스트가 표시됩니다."></textarea>
-        <button id="reparseBtn" class="button secondary full-button" type="button">수정한 OCR 원문 다시 분석</button>
-      </details>
+      <div id="statusBox" class="status-box">이미지를 넣고 분석 버튼을 누르세요.</div>
     </section>
 
-    <section class="card verify-card">
-      <div class="section-head">
-        <b>3</b>
-        <div>
-          <h2>링크·웹검색 확인</h2>
-          <p>이미지 인식 결과와 링크에서 확인한 상품 정보를 비교합니다.</p>
-        </div>
+    <section class="card">
+      <div class="section-badge">2</div>
+      <div class="section-header">
+        <h2>인식 결과 확인</h2>
+        <p>본문에는 아래 입력값이 그대로 사용됩니다. 필요하면 수정하세요.</p>
       </div>
 
-      <div class="verification-grid">
-        <div class="verification-item">
-          <span>링크 상품명</span>
-          <strong id="linkTitleStatus">확인 전</strong>
-        </div>
-        <div class="verification-item">
-          <span>상품명 대조</span>
-          <strong id="titleMatchStatus">확인 전</strong>
-        </div>
-        <div class="verification-item">
-          <span>웹검색 대조</span>
-          <strong id="searchStatus">확인 전</strong>
-        </div>
-        <div class="verification-item">
-          <span>가격 대조</span>
-          <strong id="priceMatchStatus">확인 전</strong>
-        </div>
+      <label class="field">
+        <span>상품명 / 규격</span>
+        <textarea id="productTitle" rows="3" placeholder="예: 오뚜기 진라면 매운맛 120g, 10개"></textarea>
+      </label>
+
+      <div class="grid three">
+        <label class="field">
+          <span>기존 가격 (선택)</span>
+          <input id="priceOriginal" type="text" placeholder="예: 8,000원" />
+        </label>
+        <label class="field">
+          <span>현재 가격</span>
+          <input id="priceCurrent" type="text" placeholder="예: 7,030원" />
+        </label>
+        <label class="field">
+          <span>카테고리 참고</span>
+          <input id="categoryHint" type="text" placeholder="예: 식품 / 생필품 / 주방" />
+        </label>
       </div>
 
-      <label class="field result-field">
-        <span>링크에서 확인된 상품명</span>
-        <textarea id="webTitle" rows="3" readonly placeholder="링크 확인 후 표시됩니다."></textarea>
+      <label class="field">
+        <span>OCR 원문</span>
+        <textarea id="ocrRaw" rows="8" placeholder="이미지 분석 후 OCR 원문이 여기에 표시됩니다."></textarea>
       </label>
-
-      <label class="field result-field">
-        <span>링크에서 확인된 가격</span>
-        <input id="webPrice" type="text" readonly placeholder="확인되지 않으면 비워둡니다.">
-      </label>
-
-      <details class="details">
-        <summary>확인 기록 보기</summary>
-        <pre id="verificationLog">아직 확인하지 않았습니다.</pre>
-      </details>
     </section>
 
-    <section class="card output-card">
-      <div class="section-head">
-        <b>4</b>
-        <div>
-          <h2>Threads 본문</h2>
-          <p>사용자가 직접 확정한 상품명·총가격·링크만 사용합니다. 상품명 확정 전에는 본문을 만들지 않습니다.</p>
-        </div>
+    <section class="card">
+      <div class="section-badge">3</div>
+      <div class="section-header">
+        <h2>Threads 본문</h2>
+        <p>첨부 이미지 예시 형식에 맞춰 본문을 생성합니다. 링크는 최대 2줄까지 작성됩니다.</p>
       </div>
 
-      <article class="output">
-        <div class="output-title">
-          <h3>본문</h3>
-          <small><span id="bodyCount">0</span>자</small>
+      <label class="field">
+        <div class="field-top">
+          <span>생성된 본문</span>
+          <strong id="charCount">0자</strong>
         </div>
-        <textarea id="threadBody" rows="9" placeholder="상품명·규격을 확인하고 확정하면 본문이 표시됩니다."></textarea>
-        <button id="copyBtn" class="button copy" type="button">본문 복사</button>
+        <textarea id="threadBody" rows="12" placeholder="이미지 분석 또는 직접 입력 후 본문이 생성됩니다."></textarea>
+      </label>
+
+      <div class="button-row">
+        <button id="refreshBodyBtn" class="button secondary" type="button">본문 다시 만들기</button>
+        <button id="copyBodyBtn" class="button primary" type="button">본문 복사</button>
+      </div>
+    </section>
+
+    <section class="card preview-card">
+      <div class="section-badge">4</div>
+      <div class="section-header">
+        <h2>스레드 미리보기</h2>
+        <p>실제 업로드 이미지는 프로그램 안에서 미리보기로 확인할 수 있습니다.</p>
+      </div>
+
+      <article class="thread-preview">
+        <div class="thread-head">
+          <div class="avatar"></div>
+          <div>
+            <strong>your_account</strong>
+            <div class="meta">광고 · 지금</div>
+          </div>
+        </div>
+        <pre id="previewText" class="preview-text"></pre>
+        <div id="previewImages" class="preview-images empty">업로드한 이미지가 여기에 표시됩니다.</div>
       </article>
-
-      <div class="body-options">
-        <label>
-          <input id="includeDisclosure" type="checkbox" checked>
-          쿠팡 파트너스 수수료 문구 포함
-        </label>
-      </div>
-
-      <p id="resultNotice" class="result-notice hidden"></p>
-    </section>
-
-    <section class="card guide">
-      <div class="section-head">
-        <b>5</b>
-        <div>
-          <h2>권장 캡처 방법</h2>
-        </div>
-      </div>
-      <ol>
-        <li>상품명 전체와 현재 선택 옵션의 가격이 한 화면에 나오게 캡처합니다.</li>
-        <li>쿠폰을 적용해야만 나오는 가격보다 화면에 실제 선택된 판매가격이 보이게 캡처합니다.</li>
-        <li>상품명이 여러 줄이면 잘리지 않도록 캡처합니다.</li>
-        <li>자동 인식된 상품명·규격을 확인하고 `이 상품명으로 확정`을 누른 뒤 본문을 복사합니다.</li>
-      </ol>
     </section>
   </main>
 
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <footer>캡처 OCR은 브라우저에서 처리 · 링크 확인 실패 시 이미지 정보만 사용</footer>
+  <div id="toast" class="toast" aria-live="polite"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
