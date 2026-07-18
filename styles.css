@@ -215,6 +215,50 @@ input[readonly],textarea[readonly]{background:#f8fafc}
 }
 .progress-panel li.done{color:var(--green-text);font-weight:800}
 .progress-panel li.fail{color:var(--red-text);font-weight:800}
+.confirmation-box{
+  margin-top:14px;
+  padding:15px;
+  border:2px solid #f0b429;
+  border-radius:15px;
+  background:#fffaf0
+}
+.confirmation-box.confirmed{
+  border-color:#12b76a;
+  background:#ecfdf3
+}
+.confirmation-label{
+  display:block;
+  color:#667085;
+  font-size:.82rem;
+  font-weight:800
+}
+.confirmation-box strong{
+  display:block;
+  margin-top:3px;
+  font-size:1.05rem
+}
+.confirmation-box p{
+  margin:7px 0 0;
+  color:#667085;
+  font-size:.86rem
+}
+.confirmation-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:9px;
+  margin-top:13px
+}
+.confirm-button{
+  background:#f79009;
+  color:#fff
+}
+.confirmation-box.confirmed .confirm-button{
+  background:#12b76a
+}
+.confirmation-box.confirmed .confirmation-label,
+.confirmation-box.confirmed strong{
+  color:#027a48
+}
 .two-column{
   display:grid;
   grid-template-columns:1fr 1fr;
@@ -338,4 +382,5 @@ footer{
 @media(max-width:480px){
   .two-column,.verification-grid{grid-template-columns:1fr}
   .preview-grid{grid-template-columns:1fr 1fr}
+  .confirmation-actions{grid-template-columns:1fr}
 }

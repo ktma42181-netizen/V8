@@ -16,6 +16,8 @@ const state={
   searchText:"",
   webTitle:"",
   webPrice:"",
+  titleConfirmed:false,
+  confirmedTitle:"",
   logs:[]
 };
 
@@ -524,18 +526,146 @@ function extractWebPrice(text,title){
   return candidates[0]&&candidates[0].score>=2?candidates[0].price:"";
 }
 
+function hasRequiredSpecification(title){
+  return /\d+(?:\.\d+)?\s*(?:ml|mL|l|L|g|kg|mg|개|팩|봉|캔|병|매|롤|박스|세트|입|포)/.test(
+    clean(title)
+  );
+}
+
+function hasBrokenLatinFragments(title){
+  const fragments=clean(title).match(/\b[A-Za-z]{1,3}\b/g)||[];
+  return fragments.length>=2;
+}
+
+function confirmationTitleQuality(raw){
+  const quality=titleQuality(raw);
+  const hasSpec=hasRequiredSpecification(quality.title);
+  const brokenLatin=hasBrokenLatinFragments(quality.title);
+
+  return{
+    ...quality,
+    hasSpec,
+    brokenLatin,
+    confirmable:Boolean(
+      quality.valid&&
+      hasSpec&&
+      !brokenLatin
+    )
+  };
+}
+
+function updateConfirmationUi(){
+  const box=$("titleConfirmationBox");
+  const status=$("titleConfirmStatus");
+  const confirmButton=$("confirmTitleBtn");
+
+  box.classList.toggle("confirmed",state.titleConfirmed);
+
+  if(state.titleConfirmed){
+    status.textContent="상품명·규격 확정 완료";
+    confirmButton.textContent="확정 완료";
+    confirmButton.disabled=false;
+  }else{
+    status.textContent="상품명·규격 확인 후 확정 필요";
+    confirmButton.textContent="이 상품명으로 확정";
+    confirmButton.disabled=!clean($("recognizedTitle").value);
+  }
+
+  $("useWebTitleBtn").disabled=!clean($("webTitle").value);
+}
+
+function invalidateTitleConfirmation(message="상품명이 변경되어 다시 확인해야 합니다."){
+  state.titleConfirmed=false;
+  state.confirmedTitle="";
+  $("threadBody").value="";
+  $("bodyCount").textContent="0";
+  updateConfirmationUi();
+
+  if($("progressPanel")&&!$("progressPanel").classList.contains("hidden")){
+    setStep("stepBody","","상품명·규격 확정 대기");
+  }
+
+  if(message){
+    const notice=$("resultNotice");
+    notice.classList.remove("hidden");
+    notice.textContent=message;
+  }
+
+  saveDraft();
+}
+
+function useWebTitle(){
+  const webTitle=clean($("webTitle").value);
+  if(!webTitle){
+    showToast("링크에서 확인된 상품명이 없습니다.");
+    return;
+  }
+
+  $("recognizedTitle").value=webTitle;
+  $("recognizedCategory").value=classify(webTitle);
+  invalidateTitleConfirmation("링크에서 확인된 상품명을 넣었습니다. 용량·수량을 확인한 뒤 확정하세요.");
+  $("recognizedTitle").focus();
+}
+
+function confirmProductTitle(){
+  const checked=confirmationTitleQuality($("recognizedTitle").value);
+
+  if(!checked.title){
+    showToast("상품명을 입력하거나 수정하세요.");
+    $("recognizedTitle").focus();
+    return;
+  }
+
+  if(checked.blocked||!checked.valid){
+    showToast("순위·리뷰 문구 또는 깨진 상품명이 포함되어 있습니다.");
+    $("recognizedTitle").focus();
+    return;
+  }
+
+  if(checked.brokenLatin){
+    showToast("깨진 영문 조각이 보입니다. 상품명을 수정한 뒤 다시 확정하세요.");
+    $("recognizedTitle").focus();
+    return;
+  }
+
+  if(!checked.hasSpec){
+    showToast("용량·중량·수량을 상품명에 포함해 주세요. 예: 120g, 5개");
+    $("recognizedTitle").focus();
+    return;
+  }
+
+  $("recognizedTitle").value=checked.title;
+  $("recognizedCategory").value=classify(checked.title);
+  state.titleConfirmed=true;
+  state.confirmedTitle=checked.title;
+  updateConfirmationUi();
+  refreshBody();
+
+  setStep("stepBody","done","확정된 상품명으로 Threads 본문 작성 완료");
+
+  const notice=$("resultNotice");
+  notice.classList.remove("hidden");
+  notice.textContent=
+    "상품명·규격이 확정되어 본문을 생성했습니다. 게시 전 가격과 링크를 마지막으로 확인하세요.";
+
+  showToast("상품명·규격을 확정했습니다.");
+  saveDraft();
+}
+
 function buildBody(){
-  const quality=titleQuality($("recognizedTitle").value);
+  if(!state.titleConfirmed)return"";
+
+  const quality=confirmationTitleQuality(state.confirmedTitle);
   const link=clean($("partnerLink").value);
 
-  if(!quality.valid||!link)return"";
+  if(!quality.confirmable||!link)return"";
 
   let price=formatWon($("recognizedPrice").value);
   if(price&&isSuspiciousBundlePrice(quality.title,price)){
     price="";
   }
 
-  const lines=[quality.title];
+  const lines=[state.confirmedTitle];
   if(price)lines.push(price);
   lines.push(link);
 
@@ -756,6 +886,9 @@ async function analyze(){
   state.searchText="";
   state.webTitle="";
   state.webPrice="";
+  state.titleConfirmed=false;
+  state.confirmedTitle="";
+  updateConfirmationUi();
 
   ["linkTitleStatus","titleMatchStatus","searchStatus","priceMatchStatus"]
     .forEach(id=>$(id).textContent="확인 중");
@@ -780,6 +913,7 @@ async function analyze(){
       $("recognizedTitle").value=state.ocrTitle;
       $("recognizedPrice").value=state.ocrPrice;
       $("recognizedCategory").value=state.category;
+      invalidateTitleConfirmation("자동 인식된 상품명 후보입니다. 링크 확인이 끝난 뒤 직접 확인하고 확정하세요.");
 
       state.logs.push(`OCR 상품명: ${state.ocrTitle||"인식 실패"}`);
       state.logs.push(`OCR 가격: ${state.ocrPrice||"인식 실패"}`);
@@ -823,6 +957,7 @@ async function analyze(){
       state.webPrice=extractWebPrice(state.readerText,state.webTitle||reference);
       $("webTitle").value=state.webTitle;
       $("webPrice").value=state.webPrice;
+      updateConfirmationUi();
 
       $("linkTitleStatus").textContent=
         state.webTitle?"링크에서 확인":"확인하지 못함";
@@ -882,41 +1017,42 @@ async function analyze(){
       "이미지 가격 사용";
 
     state.logs.push(
-      `상품명 최종 선택: ${reconciled.title||"차단"} / 출처: ${reconciled.titleSource}`
+      `상품명 후보 선택: ${reconciled.title||"차단"} / 출처: ${reconciled.titleSource}`
     );
     state.logs.push(
-      `가격 최종 선택: ${reconciled.price||"생략"} / 출처: ${reconciled.priceSource}`
+      `가격 후보 선택: ${reconciled.price||"생략"} / 출처: ${reconciled.priceSource}`
     );
 
-    refreshBody();
-    setStep("stepBody","done","캡처 정보로 Threads 본문 작성 완료");
-    setProgress(100,"분석과 본문 작성이 완료됐습니다.");
+    state.titleConfirmed=false;
+    state.confirmedTitle="";
+    $("threadBody").value="";
+    $("bodyCount").textContent="0";
+    updateConfirmationUi();
+
+    setStep("stepBody","","상품명·규격 확정 대기");
+    setProgress(100,"분석 완료 — 상품명·규격을 확인하고 확정하세요.");
 
     const notice=$("resultNotice");
     notice.classList.remove("hidden");
 
-    if(!$("threadBody").value.trim()){
+    const candidateCheck=confirmationTitleQuality($("recognizedTitle").value);
+
+    if(!candidateCheck.valid||candidateCheck.brokenLatin){
       notice.textContent=
-        "깨진 OCR 문장이나 순위·리뷰 문구가 감지되어 본문 생성을 중지했습니다. 인식된 상품명을 직접 수정하면 본문이 자동으로 생성됩니다.";
-    }else if(
-      $("titleMatchStatus").textContent.includes("자동 보정")||
-      $("priceMatchStatus").textContent.includes("자동 보정")
-    ){
+        "자동 인식 상품명에 오류 가능성이 있습니다. 상품명·용량·수량을 직접 수정한 뒤 `이 상품명으로 확정`을 누르세요.";
+    }else if(!candidateCheck.hasSpec){
       notice.textContent=
-        "깨진 OCR 결과 또는 단위가격을 차단하고 링크에서 확인된 상품정보로 자동 보정했습니다. 게시 전에 상품명과 현재 가격을 한 번 더 확인하세요.";
-    }else if($("recognizedPrice").value){
-      notice.textContent=
-        "본문에는 검증을 통과한 상품명과 가격만 사용했습니다. 게시 전에 쿠팡의 현재 선택 옵션과 가격을 확인하세요.";
+        "상품명 후보에 용량·중량·수량이 없습니다. 쿠팡 캡처와 비교해 규격을 추가한 뒤 확정하세요.";
     }else{
       notice.textContent=
-        "총가격을 확실히 확인하지 못했거나 단위가격으로 판단되어 가격을 본문에서 제외했습니다.";
+        "상품명 후보를 캡처 화면과 비교하세요. 정확하면 `이 상품명으로 확정`을 눌러 본문을 생성하세요.";
     }
 
-    state.logs.push(`최종 본문 상품명: ${clean($("recognizedTitle").value)}`);
-    state.logs.push(`최종 본문 가격: ${formatWon($("recognizedPrice").value)||"생략"}`);
+    state.logs.push(`확정 대기 상품명 후보: ${clean($("recognizedTitle").value)}`);
+    state.logs.push(`확정 대기 가격 후보: ${formatWon($("recognizedPrice").value)||"생략"}`);
     $("verificationLog").textContent=state.logs.join("\n");
     saveDraft();
-    showToast("캡처 분석과 본문 작성이 완료됐습니다.");
+    showToast("분석이 완료됐습니다. 상품명을 확인하고 확정하세요.");
   }finally{
     button.disabled=false;
   }
@@ -933,8 +1069,8 @@ function reparseRawText(){
   if(parsed.title)$("recognizedTitle").value=parsed.title;
   if(parsed.price)$("recognizedPrice").value=parsed.price;
   $("recognizedCategory").value=classify($("recognizedTitle").value);
-  refreshBody();
-  showToast("수정한 OCR 원문을 다시 분석했습니다.");
+  invalidateTitleConfirmation("OCR 원문을 다시 분석했습니다. 상품명·규격을 확인하고 다시 확정하세요.");
+  showToast("다시 분석했습니다. 상품명을 확인하고 확정하세요.");
 }
 
 function renderPreviews(){
@@ -960,6 +1096,7 @@ function renderPreviews(){
     remove.setAttribute("aria-label",`${index+1}번째 이미지 삭제`);
     remove.addEventListener("click",()=>{
       state.files.splice(index,1);
+      invalidateTitleConfirmation("캡처 이미지가 변경되었습니다. 다시 분석하고 상품명을 확정하세요.");
       renderPreviews();
     });
 
@@ -975,6 +1112,7 @@ function handleFiles(event){
   if(!selected.length)return;
 
   state.files=selected.slice(0,MAX_FILES);
+  invalidateTitleConfirmation("캡처 이미지가 변경되었습니다. 다시 분석하고 상품명을 확정하세요.");
   if(selected.length>MAX_FILES){
     showToast("캡처 이미지는 최대 3장까지 사용할 수 있습니다.");
   }
@@ -983,6 +1121,11 @@ function handleFiles(event){
 }
 
 async function copyBody(){
+  if(!state.titleConfirmed){
+    showToast("먼저 상품명·규격을 확인하고 확정하세요.");
+    return;
+  }
+
   const text=$("threadBody").value.trim();
   if(!text){
     showToast("복사할 본문이 없습니다.");
@@ -1013,6 +1156,8 @@ function resetAll(){
   state.ocrPrice="";
   state.webTitle="";
   state.webPrice="";
+  state.titleConfirmed=false;
+  state.confirmedTitle="";
   state.logs=[];
 
   $("previewGrid").innerHTML="";
@@ -1030,6 +1175,7 @@ function resetAll(){
   $("progressPanel").classList.add("hidden");
   $("resultNotice").classList.add("hidden");
   $("includeDisclosure").checked=true;
+  updateConfirmationUi();
   localStorage.removeItem("threadsCaptureV9");
   showToast("초기화했습니다.");
 }
@@ -1044,7 +1190,8 @@ function saveDraft(){
     webTitle:$("webTitle").value,
     webPrice:$("webPrice").value,
     threadBody:$("threadBody").value,
-    includeDisclosure:$("includeDisclosure").checked
+    includeDisclosure:$("includeDisclosure").checked,
+    titleConfirmed:false
   }));
 }
 
@@ -1058,7 +1205,11 @@ function restoreDraft(){
       if(data[id]!==undefined)$(id).value=data[id];
     });
     $("includeDisclosure").checked=data.includeDisclosure!==false;
-    $("bodyCount").textContent=$("threadBody").value.length;
+    state.titleConfirmed=false;
+    state.confirmedTitle="";
+    $("threadBody").value="";
+    $("bodyCount").textContent="0";
+    updateConfirmationUi();
   }catch{
     localStorage.removeItem("threadsCaptureV9");
   }
@@ -1105,9 +1256,12 @@ $("resetBtn").addEventListener("click",resetAll);
   $(id).addEventListener("input",()=>{
     if(id==="recognizedTitle"){
       $("recognizedCategory").value=classify($(id).value);
-      refreshBody();
+      invalidateTitleConfirmation("상품명이 수정되었습니다. 정확한지 확인한 뒤 다시 확정하세요.");
     }else if(id==="recognizedPrice"){
-      refreshBody();
+      if(state.titleConfirmed)refreshBody();
+      else saveDraft();
+    }else if(id==="partnerLink"){
+      invalidateTitleConfirmation("쿠팡 링크가 변경되었습니다. 다시 분석하고 상품명을 확정하세요.");
     }else if(id==="threadBody"){
       $("bodyCount").textContent=$(id).value.length;
       saveDraft();
@@ -1117,6 +1271,12 @@ $("resetBtn").addEventListener("click",resetAll);
   });
 });
 
-$("includeDisclosure").addEventListener("change",refreshBody);
+$("confirmTitleBtn").addEventListener("click",confirmProductTitle);
+$("useWebTitleBtn").addEventListener("click",useWebTitle);
+$("includeDisclosure").addEventListener("change",()=>{
+  if(state.titleConfirmed)refreshBody();
+  else saveDraft();
+});
 
 restoreDraft();
+updateConfirmationUi();
