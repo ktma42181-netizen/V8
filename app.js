@@ -1,358 +1,319 @@
-const state = {
-  files: [],
-  previewUrls: [],
-  ocrText: "",
-};
+const imageInput = document.getElementById('imageInput');
+const originalPreview = document.getElementById('originalPreview');
+const cleanPreview = document.getElementById('cleanPreview');
+const analyzeBtn = document.getElementById('analyzeBtn');
+const sampleBtn = document.getElementById('sampleBtn');
+const productNameEl = document.getElementById('productName');
+const productPriceEl = document.getElementById('productPrice');
+const bodyTextEl = document.getElementById('bodyText');
+const link1El = document.getElementById('link1');
+const styleTypeEl = document.getElementById('styleType');
+const emojiLevelEl = document.getElementById('emojiLevel');
+const includeDisclosureEl = document.getElementById('includeDisclosure');
+const includePriceArrowEl = document.getElementById('includePriceArrow');
+const statusEl = document.getElementById('status');
+const copyBtn = document.getElementById('copyBtn');
+const ocrLogEl = document.getElementById('ocrLog');
+const downloadImageBtn = document.getElementById('downloadImageBtn');
+const installBtn = document.getElementById('installBtn');
 
-const $ = (id) => document.getElementById(id);
-const MAX_FILES = 3;
+let uploadedImage = null;
+let uploadedImageURL = '';
+let lastCleanImageURL = '';
 
-function clean(text = "") {
-  return String(text)
-    .replace(/\u00a0/g, " ")
-    .replace(/[ \t]+/g, " ")
-    .replace(/[\r]+/g, "")
+function setStatus(text, show=true){
+  statusEl.textContent = text;
+  statusEl.classList.toggle('hidden', !show);
+}
+
+function normalize(text=''){
+  return text
+    .replace(/[|]/g,'I')
+    .replace(/[“”]/g,'"')
+    .replace(/[‘’]/g,"'")
+    .replace(/\s+/g,' ')
     .trim();
 }
 
-function showToast(message) {
-  const toast = $("toast");
-  toast.textContent = message;
-  toast.classList.add("show");
-  clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove("show"), 2200);
+function normalizeTitle(text=''){
+  return normalize(text)
+    .replace(/\s+,/g, ',')
+    .replace(/,\s*/g, ', ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\bSs\b/g, '')
+    .replace(/\bpr\b/gi, '')
+    .replace(/\baaa\b/gi, '')
+    .replace(/\brr\b/gi, '')
+    .replace(/[>#]{2,}/g, '')
+    .trim();
 }
 
-function setStatus(message, tone = "default") {
-  const box = $("statusBox");
-  box.textContent = message;
-  box.style.borderColor = tone === "error" ? "#fecaca" : tone === "success" ? "#bbf7d0" : "#e2e8f0";
-  box.style.background = tone === "error" ? "#fef2f2" : tone === "success" ? "#f0fdf4" : "#f8fafc";
-  box.style.color = tone === "error" ? "#991b1b" : tone === "success" ? "#166534" : "#475569";
+function parsePriceString(text=''){
+  const m = text.replace(/\s/g,'').match(/(\d{1,3}(?:,\d{3})+|\d{3,})원/);
+  return m ? `${Number(m[1].replace(/,/g,'')).toLocaleString('ko-KR')}원` : '';
 }
 
-function releasePreviewUrls() {
-  state.previewUrls.forEach((url) => URL.revokeObjectURL(url));
-  state.previewUrls = [];
+function hasKorean(text=''){
+  return /[가-힣]/.test(text);
 }
 
-function renderPreviews() {
-  const grid = $("previewGrid");
-  const previewImages = $("previewImages");
-  grid.innerHTML = "";
-  previewImages.innerHTML = "";
+function isLikelyInfoNoise(text=''){
+  return /(무료배송|무료반품|내일|도착|로켓|와우|쿠폰|할인|평점|판매됨|구매많음|한달구매|원산지|비슷한 상품 보기|상품 보기|브랜드|추천|정말 맛있어요|타임할인)/.test(text);
+}
 
-  if (!state.files.length) {
-    grid.classList.add("empty");
-    previewImages.className = "preview-images empty";
-    previewImages.textContent = "업로드한 이미지가 여기에 표시됩니다.";
-    return;
+function isFood(title=''){
+  return /(라면|과자|시리얼|음료|주스|사과|우유|초코|초콜릿|커피|차|물|생수|만두|떡|국수|파스타|비빔면|간식|치즈|요거트|김|참치|햄|빵|쿠키|젤리|사탕|스낵)/.test(title);
+}
+
+function detectStyle(title=''){
+  const selected = styleTypeEl.value;
+  if (selected !== 'auto') return selected;
+  return isFood(title) ? 'hook' : 'clean';
+}
+
+function buildHook(title=''){
+  const level = emojiLevelEl.value;
+  const food = isFood(title);
+  if (food) {
+    if (level === 'high') return '🔥 얘들아!! 이거 할인 뜬 거 체크해봐!! 🔥';
+    if (level === 'mid') return '🍫 먹거리 특가 찾는 분들 체크해보세요';
+    return '먹거리 할인 괜찮아서 가져왔어요';
   }
-
-  grid.classList.remove("empty");
-  previewImages.className = "preview-images";
-
-  releasePreviewUrls();
-  state.previewUrls = state.files.map((file) => URL.createObjectURL(file));
-
-  state.previewUrls.forEach((url, idx) => {
-    const box = document.createElement("div");
-    box.className = "image-box";
-    box.innerHTML = `
-      <img src="${url}" alt="업로드 이미지 ${idx + 1}">
-      <div class="image-caption">이미지 ${idx + 1}${idx === 0 ? " · 대표 미리보기" : ""}</div>
-    `;
-    grid.appendChild(box);
-
-    const preview = document.createElement("div");
-    preview.className = "preview-image";
-    preview.innerHTML = `<img src="${url}" alt="스레드 미리보기 이미지 ${idx + 1}">`;
-    previewImages.appendChild(preview);
-  });
+  if (level === 'high') return '🛒 생활용품 특가, 필요한 분들 바로 확인해보세요';
+  if (level === 'mid') return '필요한 생활용품 할인이라 공유해요';
+  return '가볍게 보기 좋은 할인 정보예요';
 }
 
-function normalizeForParse(raw = "") {
-  return raw
-    .replace(/[|│]/g, " ")
-    .replace(/[•·]/g, " ")
-    .replace(/[“”"']/g, "")
-    .replace(/\s+/g, " ");
+function buildPriceLine(price=''){
+  if (!price) return '';
+  if (!includePriceArrowEl.checked) return price;
+  const level = emojiLevelEl.value;
+  if (level === 'high') return `💜 ${price} 💜`;
+  if (level === 'mid') return `🔎 ${price}`;
+  return price;
 }
 
-function splitLines(raw = "") {
-  return raw
-    .split(/\n+/)
-    .map((line) => clean(line))
-    .filter(Boolean);
-}
-
-function isNoiseLine(line) {
-  return /(link\.coupang\.com|http|광고|팔로우|조회|댓글|도착|로켓|무료배송|무료반품|오늘|내일|쿠폰|할인|남음|판매|정말 맛있|추천|평점|브랜드|한달구매|구매|BEST AWARDS|프로필|스레드|쿠팡 파트너스 활동)/i.test(line);
-}
-
-function hasSpec(line) {
-  return /(\d+(?:[.,]\d+)?\s*(?:g|kg|ml|mL|L|개|입|팩|세트|봉|캔|병|롤|매))/i.test(line);
-}
-
-function looksLikeUnitPrice(line) {
-  return /(10g당|100g당|100ml당|1세트당|개당|당\s*\d)/i.test(line);
-}
-
-function findPriceCandidates(lines) {
-  const found = [];
-  const priceRegex = /\d{1,3}(?:,\d{3})+원|\d{4,6}원/g;
-
-  lines.forEach((line) => {
-    if (looksLikeUnitPrice(line)) return;
-    const matches = line.match(priceRegex) || [];
-    matches.forEach((p) => {
-      const value = Number(String(p).replace(/[^\d]/g, ""));
-      if (value >= 500 && value <= 999999) found.push({ text: formatWon(value), value, source: line });
-    });
-  });
-
-  return found;
-}
-
-function formatWon(value) {
-  const n = Number(String(value).replace(/[^\d]/g, ""));
-  if (!n) return "";
-  return `${n.toLocaleString("ko-KR")}원`;
-}
-
-function guessCategory(title = "") {
-  const t = title.toLowerCase();
-  if (/(라면|과자|쿠키|초콜릿|우유|주스|사과|생수|시리얼|커피|음료|컵밥|떡볶이|냉면|소스|간식|식품)/i.test(t)) return "식품";
-  if (/(세제|리필|청소|욕실|주방|수세미|수건|비누|핸드솝|샴푸|바디워시|생필품)/i.test(t)) return "생필품";
-  if (/(슬라이서|칼|주방용품|도구|수납|정리|마그네틱)/i.test(t)) return "주방/생활용품";
-  return "기타";
-}
-
-function parseProductTitle(lines) {
-  const candidates = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const current = clean(lines[i]);
-    if (!current || isNoiseLine(current)) continue;
-
-    const next = clean(lines[i + 1] || "");
-    const pair = clean(`${current} ${!isNoiseLine(next) ? next : ""}`);
-
-    const options = [pair, current];
-    options.forEach((candidate) => {
-      if (!candidate || /원/.test(candidate)) return;
-      const score =
-        (hasSpec(candidate) ? 6 : 0) +
-        (/[가-힣]/.test(candidate) ? 3 : 0) +
-        Math.min(candidate.length / 8, 5) -
-        ((candidate.match(/\d{1,2}:\d{2}/g) || []).length * 4) -
-        (isNoiseLine(candidate) ? 5 : 0);
-      if (score > 3) candidates.push({ text: candidate, score });
-    });
-  }
-
-  candidates.sort((a, b) => b.score - a.score || a.text.length - b.text.length);
-  const best = candidates[0]?.text || "";
-  return best.replace(/\s+,/g, ",").replace(/,+/g, ",").replace(/\s{2,}/g, " ").trim();
-}
-
-function parseFromOcr(raw) {
-  const normalized = normalizeForParse(raw);
-  const lines = splitLines(raw).map((line) => normalizeForParse(line));
-
-  const title = parseProductTitle(lines);
-  const prices = findPriceCandidates(lines);
-
-  let original = "";
-  let current = "";
-
-  if (prices.length >= 2) {
-    original = prices[0].text;
-    current = prices[prices.length - 1].text;
-    if (Number(original.replace(/[^\d]/g, "")) < Number(current.replace(/[^\d]/g, ""))) {
-      const tmp = original;
-      original = current;
-      current = tmp;
-    }
-  } else if (prices.length === 1) {
-    current = prices[0].text;
-  }
-
-  return {
-    title,
-    original,
-    current,
-    category: guessCategory(title),
-    raw: normalized,
-  };
-}
-
-async function recognizeImage(file) {
-  const result = await Tesseract.recognize(file, "kor+eng", {
-    logger: (m) => {
-      if (m.status === "recognizing text") {
-        const percent = Math.round((m.progress || 0) * 100);
-        setStatus(`OCR 분석 중... ${percent}%`);
-      }
-    },
-  });
-  return result.data.text || "";
-}
-
-async function analyzeImages() {
-  if (!state.files.length) {
-    showToast("먼저 상품 이미지를 업로드하세요.");
-    return;
-  }
-
-  if (typeof Tesseract === "undefined") {
-    setStatus("OCR 라이브러리를 불러오지 못했습니다. 인터넷 연결 후 다시 시도하세요.", "error");
-    return;
-  }
-
-  setStatus("이미지를 분석하고 있습니다...");
-  $("analyzeBtn").disabled = true;
-
-  try {
-    const texts = [];
-    for (let i = 0; i < state.files.length; i++) {
-      setStatus(`이미지 ${i + 1}/${state.files.length} 분석 중...`);
-      const text = await recognizeImage(state.files[i]);
-      texts.push(text);
-    }
-
-    state.ocrText = texts.join("\n\n----\n\n");
-    $("ocrRaw").value = state.ocrText;
-
-    const parsed = parseFromOcr(state.ocrText);
-    if (parsed.title && !$("productTitle").value.trim()) $("productTitle").value = parsed.title;
-    if (parsed.original && !$("priceOriginal").value.trim()) $("priceOriginal").value = parsed.original;
-    if (parsed.current && !$("priceCurrent").value.trim()) $("priceCurrent").value = parsed.current;
-    if (parsed.category && !$("categoryHint").value.trim()) $("categoryHint").value = parsed.category;
-
-    buildThreadBody();
-    setStatus("이미지 분석이 완료되었습니다. 인식 결과를 확인한 뒤 본문을 사용하세요.", "success");
-    showToast("분석 완료");
-  } catch (error) {
-    console.error(error);
-    setStatus("이미지 분석 중 오류가 발생했습니다. 이미지가 선명한지 확인하고 다시 시도하세요.", "error");
-    showToast("분석 실패");
-  } finally {
-    $("analyzeBtn").disabled = false;
-  }
-}
-
-function generateBodyByStyle({ title, original, current, link1, link2, hook, includeDisclosure, style }) {
+function buildBody(title, price, link1) {
   const lines = [];
-  const cleanedTitle = clean(title);
-  const cleanedCurrent = formatWon(current);
-  const cleanedOriginal = formatWon(original);
-  const links = [clean(link1), clean(link2)].filter(Boolean);
-
-  if (style === "promo" && includeDisclosure) {
-    lines.push("쿠팡 파트너스 활동으로 수수료를 제공받습니다.");
-    lines.push("");
+  const style = detectStyle(title);
+  if (includeDisclosureEl.checked) {
+    lines.push('쿠팡 파트너스 활동으로 수수료를 제공받습니다.');
+    lines.push('');
   }
-
-  if (style === "promo" && clean(hook)) {
-    lines.push(clean(hook));
-    lines.push("");
+  if (style === 'hook') {
+    lines.push(buildHook(title));
+    lines.push('');
   }
-
-  lines.push(cleanedTitle || "상품명을 입력하세요.");
-
-  if (style === "sale" && cleanedOriginal && cleanedCurrent && cleanedOriginal !== cleanedCurrent) {
-    lines.push(`${cleanedOriginal} -> ${cleanedCurrent}`);
-  } else if (style === "promo") {
-    lines.push(`💬 ${cleanedCurrent || "가격 입력 필요"}`);
-  } else {
-    lines.push(cleanedCurrent || "가격 입력 필요");
+  lines.push(title || '상품명 확인 필요');
+  if (price) lines.push(buildPriceLine(price));
+  if (link1) {
+    const partnerLink = link1.trim();
+    lines.push(partnerLink);
+    lines.push(partnerLink);
   }
-
-  if (links.length) lines.push("");
-  links.forEach((link) => lines.push(link));
-
-  if (style !== "promo" && includeDisclosure) {
-    lines.push("");
-    lines.push("쿠팡 파트너스 활동으로 일정액의 수수료를 제공받습니다.");
-  }
-
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return lines.join('\n').replace(/\n{3,}/g,'\n\n').trim();
 }
 
-function buildThreadBody() {
-  const payload = {
-    title: $("productTitle").value,
-    original: $("priceOriginal").value,
-    current: $("priceCurrent").value,
-    link1: $("link1").value,
-    link2: $("link2").value,
-    hook: $("hookText").value,
-    includeDisclosure: $("includeDisclosure").checked,
-    style: $("bodyStyle").value,
-  };
-
-  const body = generateBodyByStyle(payload);
-  $("threadBody").value = body;
-  $("charCount").textContent = `${body.length.toLocaleString("ko-KR")}자`;
-  $("previewText").textContent = body || "본문이 여기에 표시됩니다.";
+function collectLines(data) {
+  return (data.lines || []).map(line => {
+    const text = normalize(line.text || '');
+    return { text, bbox: line.bbox };
+  }).filter(x => x.text);
 }
 
-async function copyBody() {
-  const text = $("threadBody").value.trim();
-  if (!text) {
-    showToast("복사할 본문이 없습니다.");
+function findBadgeLines(lines, width, height) {
+  return lines.filter(line => {
+    const { x0, y0, x1, y1 } = line.bbox;
+    const isTopRight = x0 > width * 0.48 && y0 < height * 0.20;
+    const badgeText = /(회\s*구매|\d+회|구매)/.test(line.text);
+    const smallBox = (x1 - x0) < width * 0.25 && (y1 - y0) < height * 0.12;
+    return isTopRight && badgeText && smallBox;
+  });
+}
+
+function pickProductTitle(lines, width, height) {
+  const candidates = lines.filter(line => {
+    const { x0, y0, y1 } = line.bbox;
+    if (x0 < width * 0.42) return false;
+    if (y0 < height * 0.04 || y1 > height * 0.48) return false;
+    if (!hasKorean(line.text)) return false;
+    if (/원/.test(line.text)) return false;
+    if (isLikelyInfoNoise(line.text)) return false;
+    return true;
+  }).sort((a,b) => a.bbox.y0 - b.bbox.y0);
+
+  if (!candidates.length) {
+    const alt = lines.filter(line => hasKorean(line.text) && !/원/.test(line.text) && !isLikelyInfoNoise(line.text));
+    return normalizeTitle((alt.slice(0,3).map(x=>x.text).join(' ')));
+  }
+
+  const chosen = [];
+  let lastY = null;
+  for (const c of candidates) {
+    if (chosen.length === 0) {
+      chosen.push(c);
+      lastY = c.bbox.y1;
+      continue;
+    }
+    const gap = c.bbox.y0 - lastY;
+    if (gap < height * 0.06 && chosen.length < 3) {
+      chosen.push(c);
+      lastY = c.bbox.y1;
+    } else {
+      break;
+    }
+  }
+  return normalizeTitle(chosen.map(x => x.text).join(' '));
+}
+
+function pickPrice(lines, width, height) {
+  const candidates = lines.filter(line => {
+    const { x0, y0, y1 } = line.bbox;
+    if (x0 < width * 0.42) return false;
+    if (y0 < height * 0.18 || y1 > height * 0.72) return false;
+    if (!/원/.test(line.text)) return false;
+    if (/당/.test(line.text)) return false;
+    return !!parsePriceString(line.text);
+  }).map(line => ({
+    text: parsePriceString(line.text),
+    bbox: line.bbox,
+    score: (line.bbox.y1 - line.bbox.y0) * (line.bbox.x1 - line.bbox.x0)
+  })).sort((a,b) => b.score - a.score);
+  return candidates[0]?.text || '';
+}
+
+function renderCleanImage(img, badgeLines=[]) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  ctx.drawImage(img, 0, 0);
+
+  for (const line of badgeLines) {
+    const { x0, y0, x1, y1 } = line.bbox;
+    const pad = Math.round(Math.max(canvas.width, canvas.height) * 0.01);
+    const rx = Math.max(0, x0 - pad);
+    const ry = Math.max(0, y0 - pad);
+    const rw = Math.min(canvas.width - rx, (x1 - x0) + pad * 2);
+    const rh = Math.min(canvas.height - ry, (y1 - y0) + pad * 2);
+    const sampleX = Math.max(0, rx - 5);
+    const sampleY = Math.max(0, ry - 5);
+    const sampleW = Math.min(20, canvas.width - sampleX);
+    const sampleH = Math.min(20, canvas.height - sampleY);
+    const data = ctx.getImageData(sampleX, sampleY, sampleW, sampleH).data;
+    let r=255,g=255,b=255,c=0;
+    for(let i=0;i<data.length;i+=4){r+=data[i];g+=data[i+1];b+=data[i+2];c++;}
+    r=Math.round(r/c);g=Math.round(g/c);b=Math.round(b/c);
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(rx, ry, rw, rh);
+  }
+  return canvas;
+}
+
+async function analyzeImage() {
+  if (!uploadedImage) {
+    alert('먼저 이미지를 업로드해주세요.');
     return;
   }
+  setStatus('이미지 분석 중입니다...\nOCR 인식은 10~30초 정도 걸릴 수 있습니다.');
+  analyzeBtn.disabled = true;
+
   try {
-    await navigator.clipboard.writeText(text);
-    showToast("본문을 복사했습니다.");
-  } catch (error) {
-    console.error(error);
-    showToast("복사에 실패했습니다.");
+    const { data } = await Tesseract.recognize(uploadedImage, 'kor+eng', {
+      logger: m => {
+        if (m.status && typeof m.progress === 'number') {
+          setStatus(`${m.status}\n진행률: ${Math.round(m.progress * 100)}%`);
+        }
+      }
+    });
+
+    const width = uploadedImage.naturalWidth;
+    const height = uploadedImage.naturalHeight;
+    const lines = collectLines(data);
+    ocrLogEl.textContent = lines.map(x => `${x.text}  [${x.bbox.x0},${x.bbox.y0},${x.bbox.x1},${x.bbox.y1}]`).join('\n');
+
+    const badgeLines = findBadgeLines(lines, width, height);
+    const title = pickProductTitle(lines, width, height);
+    const price = pickPrice(lines, width, height);
+
+    productNameEl.value = title;
+    productPriceEl.value = price;
+
+    const cleanCanvas = renderCleanImage(uploadedImage, badgeLines);
+    if (lastCleanImageURL) URL.revokeObjectURL(lastCleanImageURL);
+    cleanCanvas.toBlob(blob => {
+      lastCleanImageURL = URL.createObjectURL(blob);
+      cleanPreview.src = lastCleanImageURL;
+      downloadImageBtn.href = lastCleanImageURL;
+      downloadImageBtn.classList.remove('hidden');
+    });
+
+    bodyTextEl.value = buildBody(title, price, link1El.value);
+
+    const badgeMsg = badgeLines.length ? `배지 ${badgeLines.length}개를 자동으로 가렸습니다.` : '삭제할 상단 구매 배지는 찾지 못했습니다.';
+    setStatus(`분석 완료\n- 상품명: ${title || '인식 실패'}\n- 가격: ${price || '인식 실패'}\n- ${badgeMsg}`);
+  } catch (err) {
+    console.error(err);
+    setStatus('분석 중 오류가 발생했습니다.\n다른 이미지를 사용하거나 상품명/가격을 직접 수정해주세요.');
+  } finally {
+    analyzeBtn.disabled = false;
   }
 }
 
-function resetAll() {
-  releasePreviewUrls();
-  state.files = [];
-  state.ocrText = "";
-  $("imageInput").value = "";
-  $("link1").value = "";
-  $("link2").value = "";
-  $("hookText").value = "";
-  $("productTitle").value = "";
-  $("priceOriginal").value = "";
-  $("priceCurrent").value = "";
-  $("categoryHint").value = "";
-  $("ocrRaw").value = "";
-  $("threadBody").value = "";
-  $("charCount").textContent = "0자";
-  $("previewText").textContent = "";
-  renderPreviews();
-  setStatus("초기화되었습니다. 이미지를 다시 넣고 분석하세요.");
-}
-
-$("imageInput").addEventListener("change", (event) => {
-  const files = Array.from(event.target.files || []).slice(0, MAX_FILES);
-  state.files = files;
-  renderPreviews();
-  setStatus(files.length ? `${files.length}개 이미지가 업로드되었습니다.` : "이미지를 넣고 분석 버튼을 누르세요.");
+imageInput.addEventListener('change', e => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  uploadedImage = new Image();
+  if (uploadedImageURL) URL.revokeObjectURL(uploadedImageURL);
+  uploadedImageURL = URL.createObjectURL(file);
+  uploadedImage.onload = () => {
+    originalPreview.src = uploadedImageURL;
+    cleanPreview.removeAttribute('src');
+    setStatus('이미지가 업로드되었습니다. "이미지 분석 후 본문 만들기"를 눌러주세요.');
+  };
+  uploadedImage.src = uploadedImageURL;
 });
 
-["productTitle", "priceOriginal", "priceCurrent", "link1", "link2", "hookText", "bodyStyle"].forEach((id) => {
-  $(id).addEventListener("input", buildThreadBody);
-  $(id).addEventListener("change", buildThreadBody);
+sampleBtn.addEventListener('click', () => {
+  productNameEl.value = '콘푸로스트 다크초코 컵 시리얼, 40g, 12개';
+  productPriceEl.value = '10,210원';
+  link1El.value = 'https://link.coupang.com/a/example1';
+  bodyTextEl.value = buildBody(productNameEl.value, productPriceEl.value, link1El.value);
+  setStatus('예시 값을 넣었습니다.');
 });
-$("includeDisclosure").addEventListener("change", buildThreadBody);
-$("analyzeBtn").addEventListener("click", analyzeImages);
-$("refreshBodyBtn").addEventListener("click", buildThreadBody);
-$("copyBodyBtn").addEventListener("click", copyBody);
-$("resetBtn").addEventListener("click", resetAll);
 
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+analyzeBtn.addEventListener('click', analyzeImage);
+
+[productNameEl, productPriceEl, link1El, styleTypeEl, emojiLevelEl, includeDisclosureEl, includePriceArrowEl].forEach(el => {
+  el.addEventListener('input', () => {
+    bodyTextEl.value = buildBody(productNameEl.value.trim(), productPriceEl.value.trim(), link1El.value);
+  });
+  el.addEventListener('change', () => {
+    bodyTextEl.value = buildBody(productNameEl.value.trim(), productPriceEl.value.trim(), link1El.value);
+  });
+});
+
+copyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(bodyTextEl.value);
+    setStatus('본문을 복사했습니다.');
+  } catch {
+    alert('복사에 실패했습니다. 본문을 길게 눌러 직접 복사해주세요.');
+  }
+});
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(console.error));
 }
 
-renderPreviews();
-buildThreadBody();
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installBtn.classList.remove('hidden');
+  let deferredPrompt = e;
+  installBtn.addEventListener('click', async () => {
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installBtn.classList.add('hidden');
+  }, { once: true });
+});

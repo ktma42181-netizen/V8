@@ -1,9 +1,9 @@
 {
-  "name": "Threads 이미지 본문 작성기 V10",
-  "short_name": "Threads V10",
+  "name": "Threads 자동 본문 작성기 V11.1",
+  "short_name": "Threads V11.1",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f3f5f9",
+  "background_color": "#f8fafc",
   "theme_color": "#0f172a",
   "icons": [
     {

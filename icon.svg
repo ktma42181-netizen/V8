@@ -1,7 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <rect width="256" height="256" rx="56" fill="#0f172a"/>
-  <rect x="34" y="44" width="188" height="168" rx="24" fill="#ffffff"/>
-  <path d="M72 88h112a16 16 0 0 1 0 32H72a16 16 0 0 1 0-32Zm0 52h76a16 16 0 0 1 0 32H72a16 16 0 0 1 0-32Z" fill="#2563eb"/>
-  <circle cx="184" cy="154" r="24" fill="#0f172a"/>
-  <path d="M176 154l8 8 16-20" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="10"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0f172a"/>
+  <rect x="76" y="92" width="360" height="328" rx="36" fill="#ffffff"/>
+  <path d="M145 168h222" stroke="#0f172a" stroke-width="26" stroke-linecap="round"/>
+  <path d="M145 248h148" stroke="#334155" stroke-width="22" stroke-linecap="round"/>
+  <path d="M145 314h220" stroke="#334155" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="380" cy="241" r="40" fill="#e11d48"/>
+  <text x="380" y="252" font-size="30" text-anchor="middle" fill="#fff" font-family="Arial, sans-serif">₩</text>
 </svg>
