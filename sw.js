@@ -1,11 +1,23 @@
-const CACHE = 'threads-auto-capture-v11-1';
-const ASSETS = ['./','./index.html','./styles.css','./app.js','./manifest.webmanifest','./icon.svg'];
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(()=>self.skipWaiting()));
+const CACHE = 'threads-auto-capture-v11-2';
+const STATIC = ['./','./index.html','./styles.css','./app.js','./manifest.webmanifest','./icon.svg'];
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(STATIC)).then(() => self.skipWaiting()));
 });
-self.addEventListener('activate', e => {
-  e.waitUntil(self.clients.claim());
+self.addEventListener('activate', event => {
+  event.waitUntil(Promise.all([
+    caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))),
+    self.clients.claim()
+  ]));
 });
-self.addEventListener('fetch', e => {
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+  event.respondWith(
+    fetch(event.request)
+      .then(response => {
+        const copy = response.clone();
+        caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
+  );
 });

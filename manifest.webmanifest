@@ -1,9 +1,9 @@
 {
-  "name": "Threads 자동 본문 작성기 V11.1",
-  "short_name": "Threads V11.1",
-  "start_url": "./",
+  "name": "Threads 자동 본문 작성기 V11.2",
+  "short_name": "Threads V11.2",
+  "start_url": "./?v=11-2",
   "display": "standalone",
-  "background_color": "#f8fafc",
+  "background_color": "#f4f7fb",
   "theme_color": "#0f172a",
   "icons": [
     {

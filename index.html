@@ -2,41 +2,48 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Threads 자동 본문 작성기 V11.1</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
+  <title>Threads 자동 본문 작성기 V11.2</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
   <main class="wrap">
     <section class="hero">
-      <p class="eyebrow">IMAGE OCR · ONE LINK × 2 · THREADS BODY</p>
-      <h1>Threads 자동 본문 작성기 V11.1</h1>
-      <p class="sub">상품 이미지를 넣으면 OCR로 <strong>구매횟수 배지 제거</strong>, <strong>상품명 추출</strong>, <strong>가격 추출</strong> 후 본문과 업로드용 이미지를 자동 생성합니다. 쿠팡 파트너스 링크는 <strong>한 번만 입력하면 본문에 동일 주소가 2번</strong> 들어갑니다.</p>
-      <button id="installBtn" class="ghost hidden">홈 화면에 설치</button>
+      <p class="eyebrow">STABLE OCR · ONE LINK × 2 · LARGE INPUT</p>
+      <h1>Threads 자동 본문 작성기 V11.2</h1>
+      <p class="sub">상품 이미지를 크게 등록하고 쿠팡 파트너스 링크를 한 번 입력하면, 상품명·가격을 확인해 같은 링크를 본문에 2번 넣습니다.</p>
+      <div class="versionRow">
+        <span class="versionBadge">작동 안정화 버전 V11.2</span>
+        <button id="installBtn" class="ghost hidden" type="button">홈 화면에 설치</button>
+      </div>
     </section>
 
-    <section class="card">
+    <section class="card inputCard">
       <div class="step">1</div>
       <div class="cardBody">
-        <h2>상품 이미지 업로드</h2>
-        <p class="muted">첨부하신 예시 기준으로 상품 이미지의 우측 상단 작은 배지(예: <b>2회 구매</b>)는 삭제하고, 우측 상품명/가격을 인식합니다.</p>
+        <h2>이미지 및 링크 입력</h2>
+        <p class="muted">이미지 선택창과 링크 입력창을 크게 만들었습니다. 이미지 선택 후 미리보기가 보이면 분석 버튼을 누르세요.</p>
 
-        <label class="uploadBox" for="imageInput">
-          <input id="imageInput" type="file" accept="image/*" />
-          <span>이미지 선택</span>
-          <small>JPG, PNG, WEBP 지원</small>
+        <label id="uploadBox" class="uploadBox" for="imageInput">
+          <input id="imageInput" type="file" accept="image/jpeg,image/png,image/webp,image/*" />
+          <span class="uploadIcon">＋</span>
+          <strong>상품 이미지 크게 선택</strong>
+          <small>화면을 눌러 갤러리·사진에서 선택하세요</small>
+          <small id="selectedFileName" class="selectedFileName">선택된 이미지 없음</small>
         </label>
 
-        <div class="grid one">
-          <label>
-            쿠팡 파트너스 링크
-            <input id="link1" type="text" placeholder="https://link.coupang.com/a/..." />
-            <small class="helpText">한 번 입력한 링크가 생성 본문에 같은 주소로 2번 표시됩니다.</small>
-          </label>
+        <div class="largePreviewWrap">
+          <img id="originalPreview" class="largePreview" alt="선택한 상품 이미지 미리보기" />
+          <div id="previewPlaceholder" class="previewPlaceholder">선택한 이미지가 크게 표시됩니다.</div>
         </div>
+
+        <label class="largeField linkField">
+          <span>쿠팡 파트너스 링크</span>
+          <textarea id="link1" rows="4" inputmode="url" spellcheck="false" placeholder="https://link.coupang.com/a/..."></textarea>
+          <small>한 번 입력한 동일 링크가 생성 본문에 2줄로 자동 표시됩니다.</small>
+        </label>
 
         <div class="grid three options">
           <label>
@@ -58,52 +65,55 @@
           <label class="checkWrap">
             <span>옵션</span>
             <div class="checks">
-              <label><input id="includeDisclosure" type="checkbox" checked /> 쿠팡 파트너스 문구 포함</label>
-              <label><input id="includePriceArrow" type="checkbox" checked /> 가격 강조 기호 포함</label>
+              <label><input id="removeBadge" type="checkbox" checked /> 상단 구매 배지 제거</label>
+              <label><input id="includeDisclosure" type="checkbox" checked /> 수수료 문구 포함</label>
+              <label><input id="includePriceArrow" type="checkbox" checked /> 가격 강조 포함</label>
             </div>
           </label>
         </div>
 
-        <div class="actions">
-          <button id="analyzeBtn" class="primary">이미지 분석 후 본문 만들기</button>
-          <button id="sampleBtn" class="secondary" type="button">예시 입력</button>
+        <div class="actions mainActions">
+          <button id="analyzeBtn" class="primary largeButton" type="button">이미지 분석 후 본문 만들기</button>
+          <button id="resetBtn" class="secondary" type="button">전체 초기화</button>
         </div>
 
-        <div id="status" class="status hidden"></div>
+        <div id="status" class="status">이미지와 링크를 입력해 주세요.</div>
       </div>
     </section>
 
     <section class="card">
       <div class="step">2</div>
       <div class="cardBody">
-        <h2>인식 결과</h2>
-        <div class="grid two previewGrid">
-          <div>
-            <h3>원본 이미지</h3>
-            <div class="preview"><img id="originalPreview" alt="원본 미리보기" /></div>
-          </div>
-          <div>
-            <h3>본문용 정리 이미지</h3>
-            <div class="preview"><img id="cleanPreview" alt="정리 이미지 미리보기" /></div>
-            <div class="actions small">
-              <a id="downloadImageBtn" class="secondary hidden" download="threads-clean-image.png">이미지 다운로드</a>
-            </div>
-          </div>
+        <h2>인식 결과 확인</h2>
+        <p class="muted">OCR 결과가 정확하지 않으면 아래 상품명과 가격을 직접 수정하면 본문에 즉시 반영됩니다.</p>
+
+        <div class="grid two resultGrid">
+          <label class="largeField">
+            <span>인식된 상품명·규격</span>
+            <textarea id="productName" rows="5" placeholder="예: 코멧 순백 3겹 라벤더 바닐라 롤 화장지, 30m, 30개입, 1개"></textarea>
+          </label>
+          <label class="largeField">
+            <span>인식된 가격</span>
+            <input id="productPrice" type="text" inputmode="numeric" placeholder="예: 11,990원" />
+          </label>
         </div>
 
-        <div class="grid two">
-          <label>
-            인식 상품명
-            <textarea id="productName" rows="3" placeholder="이미지 분석 후 자동 입력됩니다."></textarea>
-          </label>
-          <label>
-            인식 가격
-            <input id="productPrice" type="text" placeholder="예: 11,990원" />
-          </label>
+        <div class="cleanImageArea">
+          <div class="cleanHeader">
+            <div>
+              <h3>본문에 등록할 정리 이미지</h3>
+              <p>상단 구매 횟수 배지를 찾으면 가린 이미지입니다.</p>
+            </div>
+            <a id="downloadImageBtn" class="secondary hidden" download="threads-clean-image.png">정리 이미지 다운로드</a>
+          </div>
+          <div class="cleanPreviewWrap">
+            <img id="cleanPreview" alt="정리된 상품 이미지" />
+            <div id="cleanPlaceholder" class="previewPlaceholder">분석 후 정리 이미지가 표시됩니다.</div>
+          </div>
         </div>
 
         <details>
-          <summary>인식 로그 보기</summary>
+          <summary>OCR 원문 및 확인 기록</summary>
           <pre id="ocrLog" class="log"></pre>
         </details>
       </div>
@@ -113,18 +123,23 @@
       <div class="step">3</div>
       <div class="cardBody">
         <h2>Threads 본문</h2>
-        <p class="muted">참고 이미지처럼 상품명·가격을 작성하고, 입력한 쿠팡 파트너스 링크를 동일하게 2번 표시합니다.</p>
-        <label>
-          본문
-          <textarea id="bodyText" rows="12" placeholder="본문이 여기에 생성됩니다."></textarea>
+        <p class="muted">입력한 쿠팡 파트너스 링크는 같은 주소로 정확히 2번 들어갑니다.</p>
+        <label class="largeField">
+          <div class="fieldHeader">
+            <span>생성된 본문</span>
+            <b id="bodyCount">0자</b>
+          </div>
+          <textarea id="bodyText" rows="14" placeholder="이미지 분석 후 본문이 생성됩니다."></textarea>
         </label>
-        <div class="actions">
-          <button id="copyBtn" class="primary">본문 복사</button>
+        <div class="actions mainActions">
+          <button id="rebuildBtn" class="secondary" type="button">수정 내용으로 본문 다시 만들기</button>
+          <button id="copyBtn" class="primary largeButton" type="button">본문 복사</button>
         </div>
       </div>
     </section>
   </main>
 
+  <div id="toast" class="toast" aria-live="polite"></div>
   <script src="app.js"></script>
 </body>
 </html>
